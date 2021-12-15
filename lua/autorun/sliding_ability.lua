@@ -97,10 +97,18 @@ local function ManipulateBones(ply, ent, base, thigh, calf)
     if bthigh or bcalf then ManipulateBoneAnglesLessTraffic(ent, 0, base, timefrac) end
     if bthigh then ManipulateBoneAnglesLessTraffic(ent, bthigh, thigh, timefrac) end
     if bcalf then ManipulateBoneAnglesLessTraffic(ent, bcalf, calf, timefrac) end
-    local dp = thigh:IsZero() and Vector() or Vector(12, 0, -18)
+    local dp = Vector()
+    local w = ply:GetActiveWeapon()
+    if not thigh:IsZero() then
+        if IsValid(w) and string.find(w.Base or "", "mg_base") and string.lower(w.HoldType or "") ~= "pistol" then
+            dp = Vector(-3, 0, -27)
+        else
+            dp = Vector(12, 0, -18)
+        end
+    end
+
     for _, ec in pairs {EnhancedCamera, EnhancedCameraTwo} do
         if ent == ec.entity then
-            local w = ply:GetActiveWeapon()
             local seqname = LocalPlayer():GetSequenceName(ec:GetSequence())
             local pose = IsValid(w) and string.lower(w.HoldType or "") or ""
             if pose == "" then pose = seqname:sub((seqname:find "_" or 0) + 1) end
@@ -411,6 +419,7 @@ end
 CreateClientConVar("sliding_ability_tilt_viewmodel", 1, true, true, "Enable viewmodel tilt like Apex Legends when sliding.")
 hook.Add("CalcViewModelView", "Sliding view model tilt", function(w, vm, op, oa, p, a)
     if w.SuppressSlidingViewModelTilt then return end -- For the future addons which are compatible with this addon
+    if string.find(w.Base or "", "mg_base") and w:GetToggleAim() then return end
     if w.ArcCW and w:GetState() == ArcCW.STATE_SIGHTS then return end
     if not (IsValid(w.Owner) and w.Owner:IsPlayer()) then return end
     if not GetConVar "sliding_ability_tilt_viewmodel":GetBool() then return end
