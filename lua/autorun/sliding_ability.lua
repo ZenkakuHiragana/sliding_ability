@@ -69,6 +69,20 @@ local function AngleEqualTol(a1, a2, tol)
     return true
 end
 
+local function ResetVariables(ply)
+    if ply.SlidingAbility_SlidingPreviousPosition == nil then
+        ply.SlidingAbility_SlidingPreviousPosition = Vector()
+    end
+
+    if ply.SlidingAbility_SlidingStartTime == nil then
+        ply.SlidingAbility_SlidingStartTime = 0
+    end
+
+    if ply.SlidingAbility_IsSliding == nil then
+        ply.SlidingAbility_IsSliding = false
+    end
+end
+
 local function GetSlidingActivity(ply)
     local w, a = ply:GetActiveWeapon(), ACT_HL2MP_SIT_DUEL
     if IsValid(w) then a = acts[string.lower(w:GetHoldType())] or acts[string.lower(w.HoldType or "")] or ACT_HL2MP_SIT_DUEL end
@@ -166,12 +180,7 @@ hook.Add("SetupMove", "Check sliding", function(ply, mv, cmd)
         mv:SetVelocity(v)
     end
 
-    if not ply.SlidingAbility_SlidingPreviousPosition then
-        ply.SlidingAbility_SlidingPreviousPosition = Vector()
-        ply.SlidingAbility_SlidingStartTime = 0
-        ply.SlidingAbility_IsSliding = false
-    end
-    
+    ResetVariables(ply)
     ply:SetNWFloat("SlidingPreserveWalkSpeed", -1)
     if IsFirstTimePredicted() and not ply:Crouching() and ply.SlidingAbility_IsSliding then
         EndSliding(ply)
@@ -413,9 +422,18 @@ if SERVER then
         end)
     end)
 
+    util.AddNetworkString "Sliding Ability: Reset variables"
+    hook.Add("InitPostEntity", "Reset variables used when sliding on map transition", function()
+        if game.MapLoadType() ~= "transition" then return end
+        for _, p in ipairs(player.GetAll()) do ResetVariables(p) end
+        net.Start "Sliding Ability: Reset variables"
+        net.Broadcast()
+    end)
+
     return
 end
 
+net.Receive("Sliding Ability: Reset variables", function() ResetVariables(LocalPlayer()) end)
 CreateClientConVar("sliding_ability_tilt_viewmodel", 1, true, true, "Enable viewmodel tilt like Apex Legends when sliding.")
 hook.Add("CalcViewModelView", "Sliding view model tilt", function(w, vm, op, oa, p, a)
     if w.SuppressSlidingViewModelTilt then return end -- For the future addons which are compatible with this addon
