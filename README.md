@@ -4,7 +4,7 @@ Just an ability to slide for Garry's Mod, available in [Steam Workshop][ws].
 
 [ws]: https://steamcommunity.com/sharedfiles/filedetails/?id=2287816257
 
-<iframe width="560" height="315" src="https://www.youtube.com/embed/m0Sw30NuSZk" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+[![Youtube](https://img.youtube.com/vi/m0Sw30NuSZk/0.jpg)](https://www.youtube.com/embed/m0Sw30NuSZk)
 
 ## For developers
 
