@@ -59,6 +59,114 @@ local acts = {
     magic    = ACT_HL2MP_SIT_DUEL,
     knife    = ACT_HL2MP_SIT_KNIFE,
 }
+
+local Backtrack = {
+    __pool  = {}, -- [CurTime()][key] = value
+    __stash = {}, -- table.Copy(PredictedVars)
+    __vars  = {}, -- [key] = value
+}
+
+function Backtrack:__deepcopy(t, lookup)
+    if t == nil then return nil end
+
+    local copy = {}
+    for k, v in pairs(t) do
+        if istable(v) then
+            lookup = lookup or {}
+            lookup[t] = copy
+            if lookup[v] then
+                copy[k] = lookup[v]
+            else
+                copy[k] = self:__deepcopy(v, lookup)
+            end
+        elseif isvector(v) then
+            copy[k] = Vector(v)
+        elseif isangle(v) then
+            copy[k] = Angle(v)
+        elseif ismatrix(v) then
+            copy[k] = Matrix(v)
+        else
+            copy[k] = v
+        end
+    end
+
+    return copy
+end
+
+function Backtrack:__tohash(t)
+    return math.Round(t / engine.TickInterval())
+end
+
+function Backtrack:__totime(h)
+    return h * engine.TickInterval()
+end
+
+function Backtrack:__clean(ent)
+    if SERVER then return end
+    local tick = engine.TickInterval()
+    local ping = LocalPlayer():Ping() / 1000
+    for hash in pairs(self.__pool[ent]) do
+        local trackedTime = self:__totime(hash)
+        if CurTime() > trackedTime + ping + tick * 2 then
+            self.__pool[ent][hash] = nil
+        end
+    end
+end
+
+function Backtrack:__begin(ent)
+    if not IsValid(ent) then return end
+    function self:get(key, default)
+        if not self.__vars[ent] or self.__vars[ent][key] == nil then
+            return default
+        end
+        return self.__vars[ent][key]
+    end
+
+    function self:set(key, value)
+        self.__vars[ent] = self.__vars[ent] or {}
+        self.__vars[ent][key] = value
+    end
+
+    if SERVER then return end
+    if not self.__pool[ent] then return end
+    local hash = self:__tohash(CurTime())
+    local target = self.__pool[ent][hash]
+    local tick = engine.TickInterval()
+    local ping = LocalPlayer():Ping() / 1000
+    local trackLength = self:__tohash(ping + tick * 2)
+    for i = 1, trackLength do
+        if self.__pool[ent][hash - i] then
+            target = self.__pool[ent][hash - i]
+            break
+        end
+    end
+    if not target then return end
+    self.__stash[ent] = self:__deepcopy(self.__vars[ent] or {})
+    self.__vars[ent] = self:__deepcopy(target)
+end
+
+function Backtrack:__terminate(ent)
+    self.get, self.set = nil
+    if SERVER then return end
+
+    self.__pool[ent] = self.__pool[ent] or {}
+    self:__clean(ent)
+
+    local hash = self:__tohash(CurTime())
+    if self.__pool[ent][hash] then
+        self.__vars[ent] = self:__deepcopy(self.__stash[ent])
+    else
+        self.__pool[ent][hash] = self:__deepcopy(self.__vars[ent])
+    end
+end
+
+function Backtrack:wrap(ent, func)
+    self:__begin(ent)
+    local a = {func(self, ent)}
+    self:__terminate(ent)
+    return unpack(a)
+end
+
 local function AngleEqualTol(a1, a2, tol)
     tol = tol or 1e-3
     if not (isangle(a1) and isangle(a2)) then return false end
@@ -66,20 +174,6 @@ local function AngleEqualTol(a1, a2, tol)
     if math.abs(a1.yaw   - a2.yaw)   > tol then return false end
     if math.abs(a1.roll  - a2.roll)  > tol then return false end
     return true
-end
-
-local function ResetVariables(ply)
-    if ply.SlidingAbility_SlidingPreviousPosition == nil then
-        ply.SlidingAbility_SlidingPreviousPosition = Vector()
-    end
-
-    if ply.SlidingAbility_SlidingStartTime == nil then
-        ply.SlidingAbility_SlidingStartTime = 0
-    end
-
-    if ply.SlidingAbility_IsSliding == nil then
-        ply.SlidingAbility_IsSliding = false
-    end
 end
 
 local function GetSlidingActivity(ply)
@@ -143,35 +237,8 @@ local function ManipulateBones(ply, ent, base, thigh, calf)
     end
 end
 
-local function EndSliding(ply)
-    if SERVER then ManipulateBones(ply, ply, Angle(), Angle(), Angle()) end
-    ply.SlidingAbility_IsSliding = false
-    ply.SlidingAbility_SlidingStartTime = CurTime()
-    ply:SetNWBool("SlidingAbility_IsSliding", false)
-    ply:SetNWFloat("SlidingAbility_SlidingStartTime", CurTime())
-    if SERVER then ply:StopSound "SlidingAbility.ScrapeRough" end
-end
-
 local function SetSlidingPose(ply, ent, body_tilt)
     ManipulateBones(ply, ent, -Angle(0, 0, body_tilt), Angle(20, 35, 85), Angle(0, 45, 0))
-end
-
--- Backtack our data by WholeCream
-local SlidingBacktrack = {}
-local PredictedVars = {
-    ["SlidingAbility_SlidingCurrentVelocity"] = Vector(),
-}
-
-local function GetPredictedVar(ply, name)
-    return SERVER and ply[name] or PredictedVars[name]
-end
-
-local function SetPredictedVar(ply, name, value)
-    if CLIENT then
-        PredictedVars[name] = value
-    else
-        ply[name] = value
-    end
 end
 
 hook.Add("SetupMove", "Check sliding", function(ply, mv, cmd)
@@ -179,47 +246,20 @@ hook.Add("SetupMove", "Check sliding", function(ply, mv, cmd)
     if IsValid(w) and SLIDING_ABILITY_BLACKLIST[w:GetClass()] then return end
     if ConVarExists "savav_parkour_Enable" and GetConVar "savav_parkour_Enable":GetBool() then return end
     if ConVarExists "sv_sliding_enabled" and GetConVar "sv_sliding_enabled":GetBool() and ply.HasExosuit ~= false then return end
-    if ply:GetNWFloat "SlidingPreserveWalkSpeed" > 0 then
-        local v = GetPredictedVar(ply, "SlidingAbility_SlidingCurrentVelocity") or Vector()
-        v.z = mv:GetVelocity().z
-        mv:SetVelocity(v)
-    end
-
-    ResetVariables(ply)
-    ply:SetNWFloat("SlidingPreserveWalkSpeed", -1)
-    if IsFirstTimePredicted() and not ply:Crouching() and ply.SlidingAbility_IsSliding then
-        EndSliding(ply)
-    end
-
-    -- Actual calculation of movement
-    local CT = CurTime()
-    if (ply:Crouching() and ply.SlidingAbility_IsSliding) or (CLIENT and SlidingBacktrack[CT]) then
-        local restorevars = {}
-        local vpbacktrack
-        if CLIENT and not ply:KeyDown(IN_JUMP) then
-            if SlidingBacktrack[CT] then
-                local data = SlidingBacktrack[CT]
-                for k, v in pairs(PredictedVars) do
-                    restorevars[k] = v
-                    PredictedVars[k] = data[k]
-                end
-                vpbacktrack = true
-            elseif not IsFirstTimePredicted() then
-                return
-            end
-        end
-
-        -- Calculate movement
-        local velocity = GetPredictedVar(ply, "SlidingAbility_SlidingCurrentVelocity") or Vector()
+    Backtrack:wrap(ply, function(bt)
+        local velocity = bt:get("SlidingAbility_SlidingCurrentVelocity", Vector())
         local speed = velocity:Length()
         local speedref_crouch = ply:GetWalkSpeed() * ply:GetCrouchedWalkSpeed()
-        if not vpbacktrack then
+
+        -- Actual calculation of movement
+        if ply:Crouching() and bt:get "SlidingAbility_IsSliding" then
+            -- Calculate movement
             local vdir = velocity:GetNormalized()
             local forward = mv:GetMoveAngles():Forward()
-            local speedref_slide = ply.SlidingAbility_SlidingMaxSpeed
+            local speedref_slide = bt:get "SlidingAbility_SlidingMaxSpeed"
             local speedref_min = math.min(speedref_crouch, speedref_slide)
             local speedref_max = math.max(speedref_crouch, speedref_slide)
-            local dp = mv:GetOrigin() - ply.SlidingAbility_SlidingPreviousPosition
+            local dp = mv:GetOrigin() - bt:get("SlidingAbility_SlidingPreviousPosition", mv:GetOrigin())
             local dp2d = Vector(dp.x, dp.y)
             dp:Normalize()
             dp2d:Normalize()
@@ -231,96 +271,72 @@ hook.Add("SetupMove", "Check sliding", function(ply, mv, cmd)
             velocity = LerpVector(0.005, vdir, forward) * (speed + accel)
 
             SetSlidingPose(ply, ply, math.deg(math.asin(dp.z)) * dot + SLIDE_TILT_DEG)
-            SetPredictedVar(ply, "SlidingAbility_SlidingCurrentVelocity", velocity)
-            ply.SlidingAbility_SlidingCurrentVelocity = velocity
-            ply.SlidingAbility_SlidingPreviousPosition = mv:GetOrigin()
-        end
+            bt:set("SlidingAbility_SlidingCurrentVelocity", velocity)
+            bt:set("SlidingAbility_SlidingPreviousPosition", mv:GetOrigin())
 
-        -- Set push velocity
-        mv:SetVelocity(GetPredictedVar(ply, "SlidingAbility_SlidingCurrentVelocity"))
+            -- Set push velocity
+            mv:SetVelocity(velocity)
 
-        -- Effects & ending
-        if not vpbacktrack then
-            if not ply:OnGround() or mv:KeyPressed(IN_JUMP) or mv:KeyReleased(IN_DUCK) or math.abs(speed - speedref_crouch) < 10 then
-                EndSliding(ply)
-                if mv:KeyPressed(IN_JUMP) then
-                    local t = CurTime() + CVarCooldownJump:GetFloat()
-                    ply.SlidingAbility_SlidingStartTime = t
-                    ply:SetNWFloat("SlidingAbility_SlidingStartTime", t)
-                    ply:SetNWFloat("SlidingPreserveWalkSpeed", ply:GetWalkSpeed())
+            if mv:KeyReleased(IN_DUCK) or not ply:OnGround() or math.abs(speed - speedref_crouch) < 10 then
+                bt:set("SlidingAbility_IsSliding", false)
+                bt:set("SlidingAbility_SlidingStartTime", CurTime())
+                if SERVER then
+                    ManipulateBones(ply, ply, Angle(), Angle(), Angle())
+                    ply:StopSound "SlidingAbility.ScrapeRough"
                 end
             end
 
-            local e = EffectData()
-            e:SetOrigin(mv:GetOrigin())
-            e:SetScale(1.6)
-            util.Effect("WheelDust", e)
-        end
-
-        -- Restore backtrack or record data
-        if CLIENT then
-            if vpbacktrack then
-                for k, v in pairs(restorevars) do
-                    PredictedVars[k] = v
-                end
-                vpbacktrack = nil
-            elseif not SlidingBacktrack[CT] then
-                SlidingBacktrack[CT] = {}
-                for k, v in pairs(PredictedVars) do
-                    SlidingBacktrack[CT][k] = v
-                end
-                local tickint = engine.TickInterval()
-                local ping = LocalPlayer():Ping() / 1000
-                for k in pairs(SlidingBacktrack) do
-                    if CT - (ping + tickint * 2) > k then
-                        SlidingBacktrack[k] = nil
-                    end
-                end
+            if mv:KeyPressed(IN_JUMP) then
+                local t = CurTime() + CVarCooldownJump:GetFloat()
+                bt:set("SlidingAbility_SlidingStartTime", t)
+                velocity.z = ply:GetJumpPower()
+                mv:SetVelocity(velocity)
             end
+
+            if SERVER or IsFirstTimePredicted() then
+                local e = EffectData()
+                e:SetOrigin(mv:GetOrigin())
+                e:SetScale(1.6)
+                util.Effect("WheelDust", e)
+            end
+
+            return
         end
 
-        return
-    end
+        -- Initial check to see if we can do it
+        if bt:get "SlidingAbility_IsSliding" then return end
+        if not ply:OnGround() then return end
+        if not ply:Crouching() then return end
+        if not mv:KeyDown(IN_DUCK) then return end
+        -- if not mv:KeyDown(IN_SPEED) then return end -- This disables sliding for some people for some reason
+        if not mv:KeyDown(IN_MOVE) then return end
+        if CurTime() < bt:get("SlidingAbility_SlidingStartTime", 0) + CVarCooldown:GetFloat() then return end
+        if math.abs(ply:GetWalkSpeed() - ply:GetRunSpeed()) < 25 then return end
 
-    -- Initial check to see if we can do it
-    if ply.SlidingAbility_IsSliding then return end
-    if not ply:OnGround() then return end
-    if not ply:Crouching() then return end
-    if not IsFirstTimePredicted() then return end
-    if not mv:KeyDown(IN_DUCK) then return end
-    -- if not mv:KeyDown(IN_SPEED) then return end -- This disables sliding for some people for some reason
-    if not mv:KeyDown(IN_MOVE) then return end
-    if CurTime() < ply.SlidingAbility_SlidingStartTime + CVarCooldown:GetFloat() then return end
-    if math.abs(ply:GetWalkSpeed() - ply:GetRunSpeed()) < 25 then return end
-
-    local mvvelocity = mv:GetVelocity()
-    local speed = mvvelocity:Length()
-    local run = ply:GetRunSpeed()
-    local crouched = ply:GetWalkSpeed() * ply:GetCrouchedWalkSpeed()
-    local threshold = (run + crouched) / 2
-    if run > crouched and speed < threshold then return end
-    if run < crouched and (speed < run - 1 or speed > threshold) then return end
-    local runspeed = math.max(ply:GetVelocity():Length(), speed, run) * 1.5
-    local dir = mvvelocity:GetNormalized()
-    local ping = SERVER and 0 or (ply == LocalPlayer() and ply:Ping() / 1000 or 0)
-    ply.SlidingAbility_IsSliding = true
-    ply.SlidingAbility_SlidingStartTime = CurTime() - ping
-    ply.SlidingAbility_SlidingCurrentVelocity = dir * runspeed
-    ply.SlidingAbility_SlidingMaxSpeed = runspeed * 5
-    ply:SetNWBool("SlidingAbility_IsSliding", true)
-    ply:SetNWFloat("SlidingAbility_SlidingStartTime", ply.SlidingAbility_SlidingStartTime)
-    ply:SetNWVector("SlidingAbility_SlidingMaxSpeed", ply.SlidingAbility_SlidingMaxSpeed)
-    SetPredictedVar(ply, "SlidingAbility_SlidingCurrentVelocity", ply.SlidingAbility_SlidingCurrentVelocity)
-    ply:EmitSound "SlidingAbility.ImpactSoft"
-    if SERVER then ply:EmitSound "SlidingAbility.ScrapeRough" end
+        local mvvelocity = mv:GetVelocity()
+        local mvlength = mvvelocity:Length()
+        local run = ply:GetRunSpeed()
+        local crouched = ply:GetWalkSpeed() * ply:GetCrouchedWalkSpeed()
+        local threshold = (run + crouched) / 2
+        if run > crouched and mvlength < threshold then return end
+        if run < crouched and (mvlength < run - 1 or mvlength > threshold) then return end
+        local runspeed = math.max(ply:GetVelocity():Length(), mvlength, run) * 1.5
+        local dir = mvvelocity:GetNormalized()
+        bt:set("SlidingAbility_IsSliding", true)
+        bt:set("SlidingAbility_SlidingStartTime", CurTime())
+        bt:set("SlidingAbility_SlidingCurrentVelocity", dir * runspeed)
+        bt:set("SlidingAbility_SlidingMaxSpeed", runspeed * 5)
+        ply:EmitSound "SlidingAbility.ImpactSoft"
+        if SERVER then ply:EmitSound "SlidingAbility.ScrapeRough" end
+    end)
 end)
 
 hook.Add("PlayerFootstep", "Sliding sound", function(ply, pos, foot, soundname, volume, filter)
-    return ply:GetNWBool "SlidingAbility_IsSliding" or nil
+    return Backtrack:wrap(ply, function(bt) return bt:get "SlidingAbility_IsSliding" end) or nil
 end)
 
 hook.Add("CalcMainActivity", "Sliding animation", function(ply, velocity)
-    if not ply:GetNWBool "SlidingAbility_IsSliding" then return end
+    if not Backtrack:wrap(ply, function(bt) return bt:get "SlidingAbility_IsSliding" end) then return end
     if GetSlidingActivity(ply) == -1 then return end
     return GetSlidingActivity(ply), -1
 end)
@@ -334,7 +350,7 @@ hook.Add("UpdateAnimation", "Sliding aim pose parameters", function(ply, velocit
         return
     end
 
-    if not ply:GetNWBool "SlidingAbility_IsSliding" then
+    if not Backtrack:wrap(ply, function(bt) return bt:get "SlidingAbility_IsSliding" end) then
         if ply.SlidingAbility_SlidingReset then
             local l = ply
             if ply == LocalPlayer() then
@@ -382,13 +398,13 @@ hook.Add("UpdateAnimation", "Sliding aim pose parameters", function(ply, velocit
 
     if SERVER then return end
 
-    local l = ply
+    local l = nil
     if ply == LocalPlayer() then
         if g_LegsVer         then l = GetPlayerLegs()          end
         if EnhancedCamera    then l = EnhancedCamera.entity    end
         if EnhancedCameraTwo then l = EnhancedCameraTwo.entity end
-        if not IsValid(l) then return end
     end
+    if not IsValid(l) then return end
 
     local dp = ply:GetPos() - (l.SlidingAbility_SlidingPreviousPosition or ply:GetPos())
     local dp2d = Vector(dp.x, dp.y)
@@ -437,10 +453,10 @@ hook.Add("CalcViewModelView", "Sliding view model tilt", function(w, vm, op, oa,
     if not (wp and wa) then wp, wa = p, a end
 
     local ply = w.Owner
-    local t0 = ply:GetNWFloat "SlidingAbility_SlidingStartTime"
+    local t0 = Backtrack:wrap(ply, function(bt) return bt:get("SlidingAbility_SlidingStartTime", 0) end)
     local timefrac = math.TimeFraction(t0, t0 + SLIDE_ANIM_TRANSITION_TIME, CurTime())
     timefrac = math.Clamp(timefrac, 0, 1)
-    if not ply:GetNWBool "SlidingAbility_IsSliding" then timefrac = 1 - timefrac end
+    if not Backtrack:wrap(ply, function(bt) return bt:get "SlidingAbility_IsSliding" end) then timefrac = 1 - timefrac end
     if timefrac == 0 then return end
     wp:Add(LerpVector(timefrac, Vector(), LocalToWorld(Vector(0, 2, -6), Angle(), Vector(), wa)))
     wa:RotateAroundAxis(wa:Forward(), Lerp(timefrac, 0, -45))
