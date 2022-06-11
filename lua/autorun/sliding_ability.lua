@@ -1,4 +1,6 @@
--- Thanks to WholeCream, prediction issues are fixed.
+
+require "greatzenkakuman/predicted"
+local predicted = greatzenkakuman.predicted
 
 sound.Add {
     name = "SlidingAbility.ImpactSoft",
@@ -21,7 +23,7 @@ sound.Add {
     sound = "physics/body/body_medium_scrape_rough_loop1.wav",
 }
 
-local cf = {FCVAR_REPLICATED, FCVAR_ARCHIVE} -- CVarFlags
+local cf = { FCVAR_REPLICATED, FCVAR_ARCHIVE } -- CVarFlags
 local CVarAccel = CreateConVar("sliding_ability_acceleration", 250, cf,
 "The acceleration/deceleration of the sliding.  Larger value makes shorter sliding.")
 local CVarCooldown = CreateConVar("sliding_ability_cooldown", 0.3, cf,
@@ -60,113 +62,6 @@ local acts = {
     knife    = ACT_HL2MP_SIT_KNIFE,
 }
 
-local Backtrack = {
-    __pool  = {}, -- [CurTime()][key] = value
-    __stash = {}, -- table.Copy(PredictedVars)
-    __vars  = {}, -- [key] = value
-}
-
-function Backtrack:__deepcopy(t, lookup)
-    if t == nil then return nil end
-
-    local copy = {}
-    for k, v in pairs(t) do
-        if istable(v) then
-            lookup = lookup or {}
-            lookup[t] = copy
-            if lookup[v] then
-                copy[k] = lookup[v]
-            else
-                copy[k] = self:__deepcopy(v, lookup)
-            end
-        elseif isvector(v) then
-            copy[k] = Vector(v)
-        elseif isangle(v) then
-            copy[k] = Angle(v)
-        elseif ismatrix(v) then
-            copy[k] = Matrix(v)
-        else
-            copy[k] = v
-        end
-    end
-
-    return copy
-end
-
-function Backtrack:__tohash(t)
-    return math.Round(t / engine.TickInterval())
-end
-
-function Backtrack:__totime(h)
-    return h * engine.TickInterval()
-end
-
-function Backtrack:__clean(ent)
-    if SERVER then return end
-    local tick = engine.TickInterval()
-    local ping = LocalPlayer():Ping() / 1000
-    for hash in pairs(self.__pool[ent]) do
-        local trackedTime = self:__totime(hash)
-        if CurTime() > trackedTime + ping + tick * 2 then
-            self.__pool[ent][hash] = nil
-        end
-    end
-end
-
-function Backtrack:__begin(ent)
-    if not IsValid(ent) then return end
-    function self:get(key, default)
-        if not self.__vars[ent] or self.__vars[ent][key] == nil then
-            return default
-        end
-        return self.__vars[ent][key]
-    end
-
-    function self:set(key, value)
-        self.__vars[ent] = self.__vars[ent] or {}
-        self.__vars[ent][key] = value
-    end
-
-    if SERVER then return end
-    if not self.__pool[ent] then return end
-    local hash = self:__tohash(CurTime())
-    local target = self.__pool[ent][hash]
-    local tick = engine.TickInterval()
-    local ping = LocalPlayer():Ping() / 1000
-    local trackLength = self:__tohash(ping + tick * 2)
-    for i = 1, trackLength do
-        if self.__pool[ent][hash - i] then
-            target = self.__pool[ent][hash - i]
-            break
-        end
-    end
-    if not target then return end
-    self.__stash[ent] = self:__deepcopy(self.__vars[ent] or {})
-    self.__vars[ent] = self:__deepcopy(target)
-end
-
-function Backtrack:__terminate(ent)
-    self.get, self.set = nil
-    if SERVER then return end
-
-    self.__pool[ent] = self.__pool[ent] or {}
-    self:__clean(ent)
-
-    local hash = self:__tohash(CurTime())
-    if self.__pool[ent][hash] then
-        self.__vars[ent] = self:__deepcopy(self.__stash[ent])
-    else
-        self.__pool[ent][hash] = self:__deepcopy(self.__vars[ent])
-    end
-end
-
-function Backtrack:wrap(ent, func)
-    self:__begin(ent)
-    local a = {func(self, ent)}
-    self:__terminate(ent)
-    return unpack(a)
-end
-
 local function AngleEqualTol(a1, a2, tol)
     tol = tol or 1e-3
     if not (isangle(a1) and isangle(a2)) then return false end
@@ -195,7 +90,7 @@ local function ManipulateBoneAnglesLessTraffic(ent, bone, ang, frac)
     if CLIENT or not (BoneAngleCache[ent] and AngleEqualTol(BoneAngleCache[ent][bone], a, 1)) then
         ent:ManipulateBoneAngles(bone, a)
         if CLIENT then return end
-        if not BoneAngleCache[ent] then BoneAngleCache[ent] = {} end
+        BoneAngleCache[ent] = BoneAngleCache[ent] or {}
         BoneAngleCache[ent][bone] = a
     end
 end
@@ -204,37 +99,35 @@ local function ManipulateBones(ply, ent, base, thigh, calf)
     if not IsValid(ent) then return end
     local bthigh = ent:LookupBone "ValveBiped.Bip01_R_Thigh"
     local bcalf = ent:LookupBone "ValveBiped.Bip01_R_Calf"
-    local t0 = ply:GetNWFloat "SlidingAbility_SlidingStartTime"
+    local t0 = predicted.Get(ply, "SlidingAbility", "SlidingStartTime", 0)
     local timefrac = math.TimeFraction(t0, t0 + SLIDE_ANIM_TRANSITION_TIME, CurTime())
     timefrac = SERVER and 1 or math.Clamp(timefrac, 0, 1)
     if bthigh or bcalf then ManipulateBoneAnglesLessTraffic(ent, 0, base, timefrac) end
     if bthigh then ManipulateBoneAnglesLessTraffic(ent, bthigh, thigh, timefrac) end
     if bcalf then ManipulateBoneAnglesLessTraffic(ent, bcalf, calf, timefrac) end
+
+    if not (EnhancedCamera and ent == EnhancedCamera.entity) then return end
     local dp = Vector()
     local w = ply:GetActiveWeapon()
     if not thigh:IsZero() then
         if IsValid(w) and string.find(w.Base or "", "mg_base") and string.lower(w.HoldType or "") ~= "pistol" then
-            dp = Vector(-3, 0, -27)
+            dp = ply:GetCurrentViewOffset() + Vector(-3, 0, -55)
         else
-            dp = Vector(12, 0, -18)
+            dp = ply:GetCurrentViewOffset() + Vector(12, 0, -46)
         end
     end
 
-    for _, ec in pairs {EnhancedCamera, EnhancedCameraTwo} do
-        if ent == ec.entity then
-            local seqname = LocalPlayer():GetSequenceName(ec:GetSequence())
-            local pose = IsValid(w) and string.lower(w.HoldType or "") or ""
-            if pose == "" then pose = seqname:sub((seqname:find "_" or 0) + 1) end
-            if pose:find "all" then pose = "normal" end
-            if pose == "smg1" then pose = "smg" end
-            if pose and pose ~= "" and pose ~= ec.pose then
-                ec.pose = pose
-                ec:OnPoseChange()
-            end
-
-            ent:ManipulateBonePosition(0, dp * timefrac)
-        end
+    local seqname = LocalPlayer():GetSequenceName(EnhancedCamera:GetSequence())
+    local pose = IsValid(w) and string.lower(w.HoldType or "") or ""
+    if pose == "" then pose = seqname:sub((seqname:find "_" or 0) + 1) end
+    if pose:find "all" then pose = "normal" end
+    if pose == "smg1" then pose = "smg" end
+    if pose and pose ~= "" and pose ~= EnhancedCamera.pose then
+        EnhancedCamera.pose = pose
+        EnhancedCamera:OnPoseChange()
     end
+
+    ent:ManipulateBonePosition(0, dp * timefrac)
 end
 
 local function SetSlidingPose(ply, ent, body_tilt)
@@ -246,20 +139,20 @@ hook.Add("SetupMove", "Check sliding", function(ply, mv, cmd)
     if IsValid(w) and SLIDING_ABILITY_BLACKLIST[w:GetClass()] then return end
     if ConVarExists "savav_parkour_Enable" and GetConVar "savav_parkour_Enable":GetBool() then return end
     if ConVarExists "sv_sliding_enabled" and GetConVar "sv_sliding_enabled":GetBool() and ply.HasExosuit ~= false then return end
-    Backtrack:wrap(ply, function(bt)
-        local velocity = bt:get("SlidingAbility_SlidingCurrentVelocity", Vector())
+    predicted.Process("SlidingAbility", function(pr)
+        local velocity = pr.Get("SlidingCurrentVelocity", Vector())
         local speed = velocity:Length()
         local speedref_crouch = ply:GetWalkSpeed() * ply:GetCrouchedWalkSpeed()
 
         -- Actual calculation of movement
-        if ply:Crouching() and bt:get "SlidingAbility_IsSliding" then
+        if ply:Crouching() and pr.Get "IsSliding" then
             -- Calculate movement
             local vdir = velocity:GetNormalized()
             local forward = mv:GetMoveAngles():Forward()
-            local speedref_slide = bt:get "SlidingAbility_SlidingMaxSpeed"
+            local speedref_slide = pr.Get "SlidingMaxSpeed"
             local speedref_min = math.min(speedref_crouch, speedref_slide)
             local speedref_max = math.max(speedref_crouch, speedref_slide)
-            local dp = mv:GetOrigin() - bt:get("SlidingAbility_SlidingPreviousPosition", mv:GetOrigin())
+            local dp = mv:GetOrigin() - pr.Get("SlidingPreviousPosition", mv:GetOrigin())
             local dp2d = Vector(dp.x, dp.y)
             dp:Normalize()
             dp2d:Normalize()
@@ -271,46 +164,42 @@ hook.Add("SetupMove", "Check sliding", function(ply, mv, cmd)
             velocity = LerpVector(0.005, vdir, forward) * (speed + accel)
 
             SetSlidingPose(ply, ply, math.deg(math.asin(dp.z)) * dot + SLIDE_TILT_DEG)
-            bt:set("SlidingAbility_SlidingCurrentVelocity", velocity)
-            bt:set("SlidingAbility_SlidingPreviousPosition", mv:GetOrigin())
+            pr.Set("SlidingCurrentVelocity", velocity)
+            pr.Set("SlidingPreviousPosition", mv:GetOrigin())
 
             -- Set push velocity
             mv:SetVelocity(velocity)
 
             if mv:KeyReleased(IN_DUCK) or not ply:OnGround() or math.abs(speed - speedref_crouch) < 10 then
-                bt:set("SlidingAbility_IsSliding", false)
-                bt:set("SlidingAbility_SlidingStartTime", CurTime())
-                if SERVER then
-                    ManipulateBones(ply, ply, Angle(), Angle(), Angle())
-                    ply:StopSound "SlidingAbility.ScrapeRough"
-                end
+                pr.Set("IsSliding", false)
+                pr.Set("SlidingStartTime", CurTime())
+                pr.StopSound(ply, "SlidingAbility.ScrapeRough")
+                ManipulateBones(ply, ply, Angle(), Angle(), Angle())
             end
 
             if mv:KeyPressed(IN_JUMP) then
                 local t = CurTime() + CVarCooldownJump:GetFloat()
-                bt:set("SlidingAbility_SlidingStartTime", t)
+                pr.Set("SlidingStartTime", t)
                 velocity.z = ply:GetJumpPower()
                 mv:SetVelocity(velocity)
             end
 
-            if SERVER or IsFirstTimePredicted() then
-                local e = EffectData()
-                e:SetOrigin(mv:GetOrigin())
-                e:SetScale(1.6)
-                util.Effect("WheelDust", e)
-            end
+            local e = EffectData()
+            e:SetOrigin(mv:GetOrigin())
+            e:SetScale(1.6)
+            pr.Effect("WheelDust", e)
 
             return
         end
 
         -- Initial check to see if we can do it
-        if bt:get "SlidingAbility_IsSliding" then return end
+        if pr.Get "IsSliding" then return end
         if not ply:OnGround() then return end
         if not ply:Crouching() then return end
         if not mv:KeyDown(IN_DUCK) then return end
         -- if not mv:KeyDown(IN_SPEED) then return end -- This disables sliding for some people for some reason
         if not mv:KeyDown(IN_MOVE) then return end
-        if CurTime() < bt:get("SlidingAbility_SlidingStartTime", 0) + CVarCooldown:GetFloat() then return end
+        if CurTime() < pr.Get("SlidingStartTime", 0) + CVarCooldown:GetFloat() then return end
         if math.abs(ply:GetWalkSpeed() - ply:GetRunSpeed()) < 25 then return end
 
         local mvvelocity = mv:GetVelocity()
@@ -322,21 +211,21 @@ hook.Add("SetupMove", "Check sliding", function(ply, mv, cmd)
         if run < crouched and (mvlength < run - 1 or mvlength > threshold) then return end
         local runspeed = math.max(ply:GetVelocity():Length(), mvlength, run) * 1.5
         local dir = mvvelocity:GetNormalized()
-        bt:set("SlidingAbility_IsSliding", true)
-        bt:set("SlidingAbility_SlidingStartTime", CurTime())
-        bt:set("SlidingAbility_SlidingCurrentVelocity", dir * runspeed)
-        bt:set("SlidingAbility_SlidingMaxSpeed", runspeed * 5)
-        ply:EmitSound "SlidingAbility.ImpactSoft"
-        if SERVER then ply:EmitSound "SlidingAbility.ScrapeRough" end
+        pr.Set("IsSliding", true)
+        pr.Set("SlidingStartTime", CurTime())
+        pr.Set("SlidingCurrentVelocity", dir * runspeed)
+        pr.Set("SlidingMaxSpeed", runspeed * 5)
+        pr.EmitSound(ply:GetPos(), "SlidingAbility.ImpactSoft")
+        pr.EmitSound(ply, "SlidingAbility.ScrapeRough")
     end)
 end)
 
 hook.Add("PlayerFootstep", "Sliding sound", function(ply, pos, foot, soundname, volume, filter)
-    return Backtrack:wrap(ply, function(bt) return bt:get "SlidingAbility_IsSliding" end) or nil
+    return predicted.Get(ply, "SlidingAbility", "IsSliding") or nil
 end)
 
 hook.Add("CalcMainActivity", "Sliding animation", function(ply, velocity)
-    if not Backtrack:wrap(ply, function(bt) return bt:get "SlidingAbility_IsSliding" end) then return end
+    if not predicted.Get(ply, "SlidingAbility", "IsSliding") then return end
     if GetSlidingActivity(ply) == -1 then return end
     return GetSlidingActivity(ply), -1
 end)
@@ -350,21 +239,24 @@ hook.Add("UpdateAnimation", "Sliding aim pose parameters", function(ply, velocit
         return
     end
 
-    if not Backtrack:wrap(ply, function(bt) return bt:get "SlidingAbility_IsSliding" end) then
-        if ply.SlidingAbility_SlidingReset then
-            local l = ply
-            if ply == LocalPlayer() then
-                if g_LegsVer         then l = GetPlayerLegs()          end
-                if EnhancedCamera    then l = EnhancedCamera.entity    end
-                if EnhancedCameraTwo then l = EnhancedCameraTwo.entity end
+    local function DoSomethingWithLegs(doSomething, ...)
+        for _, addon in ipairs { "g_LegsVer", "EnhancedCamera", "EnhancedCameraTwo" } do
+            local leg = nil
+            if not _G[addon] then continue end
+            if addon == "g_LegsVer" then
+                leg = GetPlayerLegs()
+            else
+                leg = _G[addon].entity
             end
+            if not IsValid(leg) then continue end
+            doSomething(ply, leg, ...)
+        end
+    end
 
-            if IsValid(l) then SetSlidingPose(ply, l, 0) end
-            if g_LegsVer         then ManipulateBones(ply, GetPlayerLegs(),          Angle(), Angle(), Angle()) end
-            if EnhancedCamera    then ManipulateBones(ply, EnhancedCamera.entity,    Angle(), Angle(), Angle()) end
-            if EnhancedCameraTwo then ManipulateBones(ply, EnhancedCameraTwo.entity, Angle(), Angle(), Angle()) end
-            ManipulateBones(ply, ply, Angle(), Angle(), Angle())
+    if not predicted.Get(ply, "SlidingAbility", "IsSliding") then
+        if ply.SlidingAbility_SlidingReset then
             ply.SlidingAbility_SlidingReset = nil
+            DoSomethingWithLegs(ManipulateBones, Angle(), Angle(), Angle())
         end
 
         return
@@ -398,22 +290,18 @@ hook.Add("UpdateAnimation", "Sliding aim pose parameters", function(ply, velocit
 
     if SERVER then return end
 
-    local l = nil
-    if ply == LocalPlayer() then
-        if g_LegsVer         then l = GetPlayerLegs()          end
-        if EnhancedCamera    then l = EnhancedCamera.entity    end
-        if EnhancedCameraTwo then l = EnhancedCameraTwo.entity end
-    end
-    if not IsValid(l) then return end
-
-    local dp = ply:GetPos() - (l.SlidingAbility_SlidingPreviousPosition or ply:GetPos())
-    local dp2d = Vector(dp.x, dp.y)
-    dp:Normalize()
-    dp2d:Normalize()
-    local dot = ply:GetForward():Dot(dp2d)
-    SetSlidingPose(ply, l, math.deg(math.asin(dp.z)) * dot + SLIDE_TILT_DEG)
-    l.SlidingAbility_SlidingPreviousPosition = ply:GetPos()
+    if ply ~= LocalPlayer() then return end
     ply.SlidingAbility_SlidingReset = true
+    DoSomethingWithLegs(function(p, l, ...)
+        local dp = ply:GetPos() - (l.SlidingAbility_SlidingPreviousPosition or ply:GetPos())
+        local dp2d = Vector(dp.x, dp.y)
+        dp:Normalize()
+        dp2d:Normalize()
+        local dot = ply:GetForward():Dot(dp2d)
+        local angle = math.deg(math.asin(dp.z)) * dot + SLIDE_TILT_DEG
+        l.SlidingAbility_SlidingPreviousPosition = ply:GetPos()
+        SetSlidingPose(p, l, angle)
+    end)
 end)
 
 if SERVER then
@@ -453,10 +341,11 @@ hook.Add("CalcViewModelView", "Sliding view model tilt", function(w, vm, op, oa,
     if not (wp and wa) then wp, wa = p, a end
 
     local ply = w.Owner
-    local t0 = Backtrack:wrap(ply, function(bt) return bt:get("SlidingAbility_SlidingStartTime", 0) end)
+    local t0 = predicted.Get(ply, "SlidingAbility", "SlidingStartTime", 0)
+    if not IsFirstTimePredicted() then t0 = t0 - ply:Ping() / 1000 end
     local timefrac = math.TimeFraction(t0, t0 + SLIDE_ANIM_TRANSITION_TIME, CurTime())
     timefrac = math.Clamp(timefrac, 0, 1)
-    if not Backtrack:wrap(ply, function(bt) return bt:get "SlidingAbility_IsSliding" end) then timefrac = 1 - timefrac end
+    if not predicted.Get(ply, "SlidingAbility", "IsSliding") then timefrac = 1 - timefrac end
     if timefrac == 0 then return end
     wp:Add(LerpVector(timefrac, Vector(), LocalToWorld(Vector(0, 2, -6), Angle(), Vector(), wa)))
     wa:RotateAroundAxis(wa:Forward(), Lerp(timefrac, 0, -45))
