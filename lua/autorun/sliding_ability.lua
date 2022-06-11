@@ -220,9 +220,32 @@ hook.Add("SetupMove", "Check sliding", function(ply, mv, cmd)
     end)
 end)
 
-hook.Add("PlayerFootstep", "Sliding sound", function(ply, pos, foot, soundname, volume, filter)
+local function SlidingFootstep(ply, pos, foot, soundname, volume, filter)
     return predicted.Get(ply, "SlidingAbility", "IsSliding") or nil
-end)
+end
+if DSteps then
+    local fsname = "zzzzzz_dstep_main"
+    local esname = "zzzzz_dsteps_maskfootstep"
+    local hooks = hook.GetTable()
+    local DStepsHook = hooks.PlayerFootstep[fsname]
+    local EmitSoundHook = hooks.EntityEmitSound[esname]
+    if DStepsHook then
+        hook.Add("PlayerFootstep", fsname, function(...)
+            if SlidingFootstep(...) then return true end
+            return DStepsHook(...)
+        end)
+    end
+    if EmitSoundHook then
+        hook.Add("EntityEmitSound", esname, function(data, ...)
+            local ply = data.Entity
+            if not (IsValid(ply) and ply:IsPlayer()) then return EmitSoundHook(data, ...) end
+            if predicted.Get(ply, "SlidingAbility", "IsSliding") then return end
+            return EmitSoundHook(data, ...)
+        end)
+    end
+else
+    hook.Add("PlayerFootstep", "Sliding sound", SlidingFootstep)
+end
 
 hook.Add("CalcMainActivity", "Sliding animation", function(ply, velocity)
     if not predicted.Get(ply, "SlidingAbility", "IsSliding") then return end
