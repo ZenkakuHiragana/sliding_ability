@@ -9,9 +9,10 @@ local NET_PITCH_BITS = 8
 local NET_CHAN_BITS  = 9
 local NET_FLAGS_BITS = 10
 local NET_DSP_BITS   = 8
-local netNameEnt = "greatzenkakuman.predicted.EmitSound"
-local netNamePos = "greatzenkakuman.predicted.EmitSound.NoEntity"
+local netNameEnt  = "greatzenkakuman.predicted.EmitSound"
+local netNamePos  = "greatzenkakuman.predicted.EmitSound.NoEntity"
 local netNameStop = "greatzenkakuman.predicted.StopSound"
+local netSendSP   = "greatzenkakuman.predicted.SendToClientSP"
 local function GetDefaultChannel(ent)
     if isentity(ent) and IsValid(ent) and ent:IsWeapon() then
         return CHAN_WEAPON
@@ -177,7 +178,6 @@ local function __deepcopy(t, lookup)
     return copy
 end
 
-local netSendSP = "greatzenkakuman.predicted.SendToClientSP"
 if game.SinglePlayer() then
     if SERVER then
         util.AddNetworkString(netSendSP)

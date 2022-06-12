@@ -86,8 +86,8 @@ end
 
 local BoneAngleCache = SERVER and {} or nil
 local function ManipulateBoneAnglesLessTraffic(ent, bone, ang, frac)
-    local a = SERVER and ang or ang * frac
-    if CLIENT or not (BoneAngleCache[ent] and AngleEqualTol(BoneAngleCache[ent][bone], a, 1)) then
+    local a = (not game.SinglePlayer() and SERVER) and ang or ang * frac
+    if (game.SinglePlayer() or CLIENT) or not (BoneAngleCache[ent] and AngleEqualTol(BoneAngleCache[ent][bone], a, 1)) then
         ent:ManipulateBoneAngles(bone, a)
         if CLIENT then return end
         BoneAngleCache[ent] = BoneAngleCache[ent] or {}
@@ -100,8 +100,9 @@ local function ManipulateBones(ply, ent, base, thigh, calf)
     local bthigh = ent:LookupBone "ValveBiped.Bip01_R_Thigh"
     local bcalf = ent:LookupBone "ValveBiped.Bip01_R_Calf"
     local t0 = predicted.Get(ply, "SlidingAbility", "SlidingStartTime", 0)
-    local timefrac = math.TimeFraction(t0, t0 + SLIDE_ANIM_TRANSITION_TIME, CurTime())
-    timefrac = SERVER and 1 or math.Clamp(timefrac, 0, 1)
+    local ping = (game.SinglePlayer() or SERVER) and 0 or LocalPlayer():Ping() / 1000
+    local timefrac = math.TimeFraction(t0 - ping, t0 - ping + SLIDE_ANIM_TRANSITION_TIME, CurTime())
+    timefrac = (not game.SinglePlayer() and SERVER) and 1 or math.Clamp(timefrac, 0, 1)
     if bthigh or bcalf then ManipulateBoneAnglesLessTraffic(ent, 0, base, timefrac) end
     if bthigh then ManipulateBoneAnglesLessTraffic(ent, bthigh, thigh, timefrac) end
     if bcalf then ManipulateBoneAnglesLessTraffic(ent, bcalf, calf, timefrac) end
@@ -167,21 +168,18 @@ hook.Add("SetupMove", "Check sliding", function(ply, mv, cmd)
             pr.Set("SlidingCurrentVelocity", velocity)
             pr.Set("SlidingPreviousPosition", mv:GetOrigin())
 
-            -- Set push velocity
-            mv:SetVelocity(velocity)
-
-            if mv:KeyReleased(IN_DUCK) or not ply:OnGround() or math.abs(speed - speedref_crouch) < 10 then
-                pr.Set("IsSliding", false)
-                pr.Set("SlidingStartTime", CurTime())
-                pr.StopSound(ply, "SlidingAbility.ScrapeRough")
-                ManipulateBones(ply, ply, Angle(), Angle(), Angle())
+            local cooldown = CurTime() + CVarCooldown:GetFloat()
+            if mv:KeyPressed(IN_JUMP) or not ply:OnGround() then
+                cooldown = CurTime() + CVarCooldownJump:GetFloat()
+                velocity.z = ply:GetJumpPower()
             end
 
-            if mv:KeyPressed(IN_JUMP) then
-                local t = CurTime() + CVarCooldownJump:GetFloat()
-                pr.Set("SlidingStartTime", t)
-                velocity.z = ply:GetJumpPower()
-                mv:SetVelocity(velocity)
+            mv:SetVelocity(velocity)
+            if mv:KeyReleased(IN_DUCK) or not ply:OnGround() or math.abs(speed - speedref_crouch) < 10 then
+                pr.Set("IsSliding", false)
+                pr.Set("SlidingStartTime", cooldown)
+                pr.StopSound(ply, "SlidingAbility.ScrapeRough")
+                ManipulateBones(ply, ply, Angle(), Angle(), Angle())
             end
 
             local e = EffectData()
@@ -199,7 +197,7 @@ hook.Add("SetupMove", "Check sliding", function(ply, mv, cmd)
         if not mv:KeyDown(IN_DUCK) then return end
         -- if not mv:KeyDown(IN_SPEED) then return end -- This disables sliding for some people for some reason
         if not mv:KeyDown(IN_MOVE) then return end
-        if CurTime() < pr.Get("SlidingStartTime", 0) + CVarCooldown:GetFloat() then return end
+        if CurTime() < pr.Get("SlidingStartTime", CurTime()) then return end
         if math.abs(ply:GetWalkSpeed() - ply:GetRunSpeed()) < 25 then return end
 
         local mvvelocity = mv:GetVelocity()
