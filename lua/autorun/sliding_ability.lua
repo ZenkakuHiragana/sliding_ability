@@ -176,6 +176,7 @@ hook.Add("SetupMove", "Check sliding", function(ply, mv, cmd)
 
             mv:SetVelocity(velocity)
             if mv:KeyReleased(IN_DUCK) or not ply:OnGround() or math.abs(speed - speedref_crouch) < 10 then
+                if SERVER then ply:SetNWBool("SlidingAbilityIsSliding", false) end
                 pr.Set("IsSliding", false)
                 pr.Set("SlidingStartTime", cooldown)
                 pr.StopSound(ply, "SlidingAbility.ScrapeRough")
@@ -209,6 +210,7 @@ hook.Add("SetupMove", "Check sliding", function(ply, mv, cmd)
         if run < crouched and (mvlength < run - 1 or mvlength > threshold) then return end
         local runspeed = math.max(ply:GetVelocity():Length(), mvlength, run) * 1.5
         local dir = mvvelocity:GetNormalized()
+        if SERVER then ply:SetNWBool("SlidingAbilityIsSliding", true) end
         pr.Set("IsSliding", true)
         pr.Set("SlidingStartTime", CurTime())
         pr.Set("SlidingCurrentVelocity", dir * runspeed)
@@ -219,7 +221,8 @@ hook.Add("SetupMove", "Check sliding", function(ply, mv, cmd)
 end)
 
 local function SlidingFootstep(ply, pos, foot, soundname, volume, filter)
-    return predicted.Get(ply, "SlidingAbility", "IsSliding") or nil
+    return predicted.Get(ply, "SlidingAbility", "IsSliding")
+    or ply:GetNWBool("SlidingAbilityIsSliding", false) or nil
 end
 if DSteps then
     local fsname = "zzzzzz_dstep_main"
@@ -236,8 +239,15 @@ if DSteps then
     if EmitSoundHook then
         hook.Add("EntityEmitSound", esname, function(data, ...)
             local ply = data.Entity
-            if not (IsValid(ply) and ply:IsPlayer()) then return EmitSoundHook(data, ...) end
-            if predicted.Get(ply, "SlidingAbility", "IsSliding") then return end
+            if not (IsValid(ply) and ply:IsPlayer()) then
+                return EmitSoundHook(data, ...)
+            end
+
+            if predicted.Get(ply, "SlidingAbility", "IsSliding")
+                or ply:GetNWBool("SlidingAbilityIsSliding", false) then
+                return
+            end
+
             return EmitSoundHook(data, ...)
         end)
     end
@@ -246,7 +256,8 @@ else
 end
 
 hook.Add("CalcMainActivity", "Sliding animation", function(ply, velocity)
-    if not predicted.Get(ply, "SlidingAbility", "IsSliding") then return end
+    if not (predicted.Get(ply, "SlidingAbility", "IsSliding")
+        or ply:GetNWBool("SlidingAbilityIsSliding", false)) then return end
     if GetSlidingActivity(ply) == -1 then return end
     return GetSlidingActivity(ply), -1
 end)
@@ -274,7 +285,8 @@ hook.Add("UpdateAnimation", "Sliding aim pose parameters", function(ply, velocit
         end
     end
 
-    if not predicted.Get(ply, "SlidingAbility", "IsSliding") then
+    if not (predicted.Get(ply, "SlidingAbility", "IsSliding")
+        or ply:GetNWBool("SlidingAbilityIsSliding", false)) then
         if ply.SlidingAbility_SlidingReset then
             ply.SlidingAbility_SlidingReset = nil
             DoSomethingWithLegs(ManipulateBones, Angle(), Angle(), Angle())
@@ -366,7 +378,10 @@ hook.Add("CalcViewModelView", "Sliding view model tilt", function(w, vm, op, oa,
     if not IsFirstTimePredicted() then t0 = t0 - ply:Ping() / 1000 end
     local timefrac = math.TimeFraction(t0, t0 + SLIDE_ANIM_TRANSITION_TIME, CurTime())
     timefrac = math.Clamp(timefrac, 0, 1)
-    if not predicted.Get(ply, "SlidingAbility", "IsSliding") then timefrac = 1 - timefrac end
+    if not (predicted.Get(ply, "SlidingAbility", "IsSliding")
+        or ply:GetNWBool("SlidingAbilityIsSliding", false)) then
+        timefrac = 1 - timefrac
+    end
     if timefrac == 0 then return end
     wp:Add(LerpVector(timefrac, Vector(), LocalToWorld(Vector(0, 2, -6), Angle(), Vector(), wa)))
     wa:RotateAroundAxis(wa:Forward(), Lerp(timefrac, 0, -45))
