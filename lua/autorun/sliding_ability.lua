@@ -349,18 +349,9 @@ if SERVER then
         end)
     end)
 
-    util.AddNetworkString "Sliding Ability: Reset variables"
-    hook.Add("InitPostEntity", "Reset variables used when sliding on map transition", function()
-        if game.MapLoadType() ~= "transition" then return end
-        for _, p in ipairs(player.GetAll()) do ResetVariables(p) end
-        net.Start "Sliding Ability: Reset variables"
-        net.Broadcast()
-    end)
-
     return
 end
 
-net.Receive("Sliding Ability: Reset variables", function() ResetVariables(LocalPlayer()) end)
 CreateClientConVar("sliding_ability_tilt_viewmodel", 1, true, true, "Enable viewmodel tilt like Apex Legends when sliding.")
 hook.Add("CalcViewModelView", "Sliding view model tilt", function(w, vm, op, oa, p, a)
     if w.SuppressSlidingViewModelTilt then return end -- For the future addons which are compatible with this addon
