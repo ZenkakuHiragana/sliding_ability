@@ -144,12 +144,12 @@ local function SetSlidingPose(ply, ent, body_tilt)
     ManipulateBones(ply, ent, -Angle(0, 0, body_tilt), Angle(20, 35, 85), Angle(0, 45, 0))
 end
 
-hook.Add("SetupMove", "SlidingAbility_CheckSliding", function(ply, mv, cmd)
+hook.Add("SetupMove", "SlidingAbility_CheckSliding", function(ply, mv)
     if not ply:Crouching() then return end
     local w = ply:GetActiveWeapon()
     if IsValid(w) and SLIDING_ABILITY_BLACKLIST[w:GetClass()] then return end
-    if ConVarExists "savav_parkour_Enable" and GetConVar "savav_parkour_Enable":GetBool() then return end
-    if ConVarExists "sv_sliding_enabled" and GetConVar "sv_sliding_enabled":GetBool() and ply.HasExosuit ~= false then return end
+    if ConVarExists("savav_parkour_Enable") and GetConVar("savav_parkour_Enable"):GetBool() then return end
+    if ConVarExists("sv_sliding_enabled") and GetConVar("sv_sliding_enabled"):GetBool() and ply.HasExosuit ~= false then return end
     predicted.Process("SlidingAbility", function(pr)
         -- Actual calculation of movement
         if pr.Get "IsSliding" then
@@ -228,10 +228,11 @@ hook.Add("SetupMove", "SlidingAbility_CheckSliding", function(ply, mv, cmd)
     end)
 end)
 
-local function SlidingFootstep(ply, pos, foot, soundname, volume, filter)
+local function SlidingFootstep(ply)
     return predicted.Get(ply, "SlidingAbility", "IsSliding")
     or ply:GetNWBool("SlidingAbilityIsSliding", false) or nil
 end
+
 if DSteps then
     local fsname = "zzzzzz_dstep_main"
     local esname = "zzzzz_dsteps_maskfootstep"
@@ -263,7 +264,7 @@ else
     hook.Add("PlayerFootstep", "SlidingAbility_SlidingSound", SlidingFootstep)
 end
 
-hook.Add("CalcMainActivity", "SlidingAbility_SlidingAnimation", function(ply, velocity)
+hook.Add("CalcMainActivity", "SlidingAbility_SlidingAnimation", function(ply)
     if not (predicted.Get(ply, "SlidingAbility", "IsSliding")
         or ply:GetNWBool("SlidingAbilityIsSliding", false)) then return end
     if GetSlidingActivity(ply) == -1 then return end
@@ -360,19 +361,21 @@ if SERVER then
     return
 end
 
-CreateClientConVar("sliding_ability_tilt_viewmodel", 1, true, true, "Enable viewmodel tilt like Apex Legends when sliding.")
+local clTiltVM = CreateClientConVar("sliding_ability_tilt_viewmodel", 1, true, true, "Enable viewmodel tilt like Apex Legends when sliding.")
 hook.Add("CalcViewModelView", "SlidingAbility_SlidingViewModelTilt", function(w, vm, op, oa, p, a)
     if w.SuppressSlidingViewModelTilt then return end -- For the future addons which are compatible with this addon
     if string.find(w.Base or "", "mg_base") and w:GetToggleAim() then return end
     if w.ArcCW and w:GetState() == ArcCW.STATE_SIGHTS then return end
-    if not (IsValid(w.Owner) and w.Owner:IsPlayer()) then return end
-    if not GetConVar "sliding_ability_tilt_viewmodel":GetBool() then return end
+
+    local ply = w:GetOwner()
+
+    if not (IsValid(ply) and ply:IsPlayer()) then return end
+    if not clTiltVM:GetBool() then return end
     if w.IsTFAWeapon and w:GetIronSights() then return end
     local wp, wa = p, a
     if isfunction(w.CalcViewModelView) then wp, wa = w:CalcViewModelView(vm, op, oa, p, a) end
     if not (wp and wa) then wp, wa = p, a end
 
-    local ply = w.Owner
     local t0 = predicted.Get(ply, "SlidingAbility", "SlidingStartTime", 0)
     if not IsFirstTimePredicted() then t0 = t0 - ply:Ping() / 1000 end
     local timefrac = math.TimeFraction(t0, t0 + SLIDE_ANIM_TRANSITION_TIME, CurTime())
