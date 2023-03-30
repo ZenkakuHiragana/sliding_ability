@@ -1,6 +1,15 @@
-
 require "greatzenkakuman/predicted"
 local predicted = greatzenkakuman.predicted
+
+local IsValid = IsValid
+local CurTime = CurTime
+local GetConVar = GetConVar
+local isstring = isstring
+local isangle = isangle
+local ConVarExists = ConVarExists
+local isfunction = isfunction
+local Vector = Vector
+local Angle = Angle
 
 sound.Add {
     name = "SlidingAbility.ImpactSoft",
@@ -135,19 +144,20 @@ local function SetSlidingPose(ply, ent, body_tilt)
     ManipulateBones(ply, ent, -Angle(0, 0, body_tilt), Angle(20, 35, 85), Angle(0, 45, 0))
 end
 
-hook.Add("SetupMove", "Check sliding", function(ply, mv, cmd)
+hook.Add("SetupMove", "SlidingAbility_CheckSliding", function(ply, mv, cmd)
+    if not ply:Crouching() then return end
     local w = ply:GetActiveWeapon()
     if IsValid(w) and SLIDING_ABILITY_BLACKLIST[w:GetClass()] then return end
     if ConVarExists "savav_parkour_Enable" and GetConVar "savav_parkour_Enable":GetBool() then return end
     if ConVarExists "sv_sliding_enabled" and GetConVar "sv_sliding_enabled":GetBool() and ply.HasExosuit ~= false then return end
     predicted.Process("SlidingAbility", function(pr)
-        local velocity = pr.Get("SlidingCurrentVelocity", Vector())
-        local speed = velocity:Length()
-        local speedref_crouch = ply:GetWalkSpeed() * ply:GetCrouchedWalkSpeed()
-
         -- Actual calculation of movement
-        if ply:Crouching() and pr.Get "IsSliding" then
+        if pr.Get "IsSliding" then
             -- Calculate movement
+            local velocity = pr.Get("SlidingCurrentVelocity", Vector())
+            local speed = velocity:Length()
+            local speedref_crouch = ply:GetWalkSpeed() * ply:GetCrouchedWalkSpeed()
+
             local vdir = velocity:GetNormalized()
             local forward = mv:GetMoveAngles():Forward()
             local speedref_slide = pr.Get "SlidingMaxSpeed"
@@ -192,9 +202,7 @@ hook.Add("SetupMove", "Check sliding", function(ply, mv, cmd)
         end
 
         -- Initial check to see if we can do it
-        if pr.Get "IsSliding" then return end
         if not ply:OnGround() then return end
-        if not ply:Crouching() then return end
         if not mv:KeyDown(IN_DUCK) then return end
         -- if not mv:KeyDown(IN_SPEED) then return end -- This disables sliding for some people for some reason
         if not mv:KeyDown(IN_MOVE) then return end
@@ -252,17 +260,17 @@ if DSteps then
         end)
     end
 else
-    hook.Add("PlayerFootstep", "Sliding sound", SlidingFootstep)
+    hook.Add("PlayerFootstep", "SlidingAbility_SlidingSound", SlidingFootstep)
 end
 
-hook.Add("CalcMainActivity", "Sliding animation", function(ply, velocity)
+hook.Add("CalcMainActivity", "SlidingAbility_SlidingAnimation", function(ply, velocity)
     if not (predicted.Get(ply, "SlidingAbility", "IsSliding")
         or ply:GetNWBool("SlidingAbilityIsSliding", false)) then return end
     if GetSlidingActivity(ply) == -1 then return end
     return GetSlidingActivity(ply), -1
 end)
 
-hook.Add("UpdateAnimation", "Sliding aim pose parameters", function(ply, velocity, maxSeqGroundSpeed)
+hook.Add("UpdateAnimation", "SlidingAbility_SlidingAimPoseParameters", function(ply, velocity, maxSeqGroundSpeed)
     -- Workaround!!!  Revive Mod disables the sliding animation so we disable it
     local ReviveModUpdateAnimation = hook.GetTable().UpdateAnimation.BleedOutAnims
     if ReviveModUpdateAnimation then hook.Remove("UpdateAnimation", "BleedOutAnims") end
@@ -338,7 +346,7 @@ hook.Add("UpdateAnimation", "Sliding aim pose parameters", function(ply, velocit
 end)
 
 if SERVER then
-    hook.Add("PlayerInitialSpawn", "Prevent breaking TPS model on changelevel", function(ply, transition)
+    hook.Add("PlayerInitialSpawn", "SlidingAbility_PreventBreakingTPSModelOnChangelevel", function(ply, transition)
         if not transition then return end
         timer.Simple(1, function()
             for i = 0, ply:GetBoneCount() - 1 do
@@ -353,7 +361,7 @@ if SERVER then
 end
 
 CreateClientConVar("sliding_ability_tilt_viewmodel", 1, true, true, "Enable viewmodel tilt like Apex Legends when sliding.")
-hook.Add("CalcViewModelView", "Sliding view model tilt", function(w, vm, op, oa, p, a)
+hook.Add("CalcViewModelView", "SlidingAbility_SlidingViewModelTilt", function(w, vm, op, oa, p, a)
     if w.SuppressSlidingViewModelTilt then return end -- For the future addons which are compatible with this addon
     if string.find(w.Base or "", "mg_base") and w:GetToggleAim() then return end
     if w.ArcCW and w:GetState() == ArcCW.STATE_SIGHTS then return end
