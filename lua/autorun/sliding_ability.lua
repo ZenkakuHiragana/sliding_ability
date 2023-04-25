@@ -10,6 +10,15 @@ local ConVarExists = ConVarExists
 local isfunction = isfunction
 local Vector = Vector
 local Angle = Angle
+local isSingleplayer = game.SinglePlayer()
+
+local vecBase = Vector()
+local vecMWOffset = Vector(-3, 0, -55)
+local vecOffset = Vector(12, 0, -46)
+
+local angBase = Angle()
+local angThigh = Angle(20, 35, 85)
+local angCalf = Angle(0, 45, 0)
 
 sound.Add {
     name = "SlidingAbility.ImpactSoft",
@@ -95,8 +104,8 @@ end
 
 local BoneAngleCache = SERVER and {} or nil
 local function ManipulateBoneAnglesLessTraffic(ent, bone, ang, frac)
-    local a = (not game.SinglePlayer() and SERVER) and ang or ang * frac
-    if (game.SinglePlayer() or CLIENT) or not (BoneAngleCache[ent] and AngleEqualTol(BoneAngleCache[ent][bone], a, 1)) then
+    local a = (not isSingleplayer and SERVER) and ang or ang * frac
+    if (isSingleplayer or CLIENT) or not (BoneAngleCache[ent] and AngleEqualTol(BoneAngleCache[ent][bone], a, 1)) then
         ent:ManipulateBoneAngles(bone, a)
         if CLIENT then return end
         BoneAngleCache[ent] = BoneAngleCache[ent] or {}
@@ -109,21 +118,21 @@ local function ManipulateBones(ply, ent, base, thigh, calf)
     local bthigh = ent:LookupBone "ValveBiped.Bip01_R_Thigh"
     local bcalf = ent:LookupBone "ValveBiped.Bip01_R_Calf"
     local t0 = predicted.Get(ply, "SlidingAbility", "SlidingStartTime", 0)
-    local ping = (game.SinglePlayer() or SERVER) and 0 or LocalPlayer():Ping() / 1000
+    local ping = (isSingleplayer or SERVER) and 0 or LocalPlayer():Ping() / 1000
     local timefrac = math.TimeFraction(t0 - ping, t0 - ping + SLIDE_ANIM_TRANSITION_TIME, CurTime())
-    timefrac = (not game.SinglePlayer() and SERVER) and 1 or math.Clamp(timefrac, 0, 1)
+    timefrac = (not isSingleplayer and SERVER) and 1 or math.Clamp(timefrac, 0, 1)
     if bthigh or bcalf then ManipulateBoneAnglesLessTraffic(ent, 0, base, timefrac) end
     if bthigh then ManipulateBoneAnglesLessTraffic(ent, bthigh, thigh, timefrac) end
     if bcalf then ManipulateBoneAnglesLessTraffic(ent, bcalf, calf, timefrac) end
 
     if not (EnhancedCamera and ent == EnhancedCamera.entity) then return end
-    local dp = Vector()
+    local dp = vecBase
     local w = ply:GetActiveWeapon()
     if not thigh:IsZero() then
         if IsValid(w) and string.find(w.Base or "", "mg_base") and string.lower(w.HoldType or "") ~= "pistol" then
-            dp = ply:GetCurrentViewOffset() + Vector(-3, 0, -55)
+            dp = ply:GetCurrentViewOffset() + vecMWOffset
         else
-            dp = ply:GetCurrentViewOffset() + Vector(12, 0, -46)
+            dp = ply:GetCurrentViewOffset() + vecOffset
         end
     end
 
@@ -141,7 +150,7 @@ local function ManipulateBones(ply, ent, base, thigh, calf)
 end
 
 local function SetSlidingPose(ply, ent, body_tilt)
-    ManipulateBones(ply, ent, -Angle(0, 0, body_tilt), Angle(20, 35, 85), Angle(0, 45, 0))
+    ManipulateBones(ply, ent, -Angle(0, 0, body_tilt), angThigh, angCalf)
 end
 
 hook.Add("SetupMove", "SlidingAbility_CheckSliding", function(ply, mv)
@@ -154,7 +163,7 @@ hook.Add("SetupMove", "SlidingAbility_CheckSliding", function(ply, mv)
         -- Actual calculation of movement
         if pr.Get "IsSliding" then
             -- Calculate movement
-            local velocity = pr.Get("SlidingCurrentVelocity", Vector())
+            local velocity = pr.Get("SlidingCurrentVelocity", vecBase)
             local speed = velocity:Length()
             local speedref_crouch = ply:GetWalkSpeed() * ply:GetCrouchedWalkSpeed()
 
@@ -190,7 +199,7 @@ hook.Add("SetupMove", "SlidingAbility_CheckSliding", function(ply, mv)
                 pr.Set("IsSliding", false)
                 pr.Set("SlidingStartTime", cooldown)
                 pr.StopSound(ply, "SlidingAbility.ScrapeRough")
-                ManipulateBones(ply, ply, Angle(), Angle(), Angle())
+                ManipulateBones(ply, ply, angBase, angBase, angBase)
             end
 
             local e = EffectData()
@@ -298,7 +307,7 @@ hook.Add("UpdateAnimation", "SlidingAbility_SlidingAimPoseParameters", function(
         or ply:GetNWBool("SlidingAbilityIsSliding", false)) then
         if ply.SlidingAbility_SlidingReset then
             ply.SlidingAbility_SlidingReset = nil
-            DoSomethingWithLegs(ManipulateBones, Angle(), Angle(), Angle())
+            DoSomethingWithLegs(ManipulateBones, angBase, angBase, angBase)
         end
 
         return
@@ -347,13 +356,15 @@ hook.Add("UpdateAnimation", "SlidingAbility_SlidingAimPoseParameters", function(
 end)
 
 if SERVER then
+    local vecInitSpawn = Vector(1, 1, 1)
+
     hook.Add("PlayerInitialSpawn", "SlidingAbility_PreventBreakingTPSModelOnChangelevel", function(ply, transition)
         if not transition then return end
         timer.Simple(1, function()
             for i = 0, ply:GetBoneCount() - 1 do
-                ply:ManipulateBoneScale(i, Vector(1, 1, 1))
-                ply:ManipulateBoneAngles(i, Angle())
-                ply:ManipulateBonePosition(i, Vector())
+                ply:ManipulateBoneScale(i, vecInitSpawn)
+                ply:ManipulateBoneAngles(i, angBase)
+                ply:ManipulateBonePosition(i, vecBase)
             end
         end)
     end)
@@ -362,6 +373,8 @@ if SERVER then
 end
 
 local clTiltVM = CreateClientConVar("sliding_ability_tilt_viewmodel", 1, true, true, "Enable viewmodel tilt like Apex Legends when sliding.")
+local vecViewModel = Vector(0, 2, -6)
+
 hook.Add("CalcViewModelView", "SlidingAbility_SlidingViewModelTilt", function(w, vm, op, oa, p, a)
     if w.SuppressSlidingViewModelTilt then return end -- For the future addons which are compatible with this addon
     if string.find(w.Base or "", "mg_base") and w:GetToggleAim() then return end
@@ -385,6 +398,6 @@ hook.Add("CalcViewModelView", "SlidingAbility_SlidingViewModelTilt", function(w,
         timefrac = 1 - timefrac
     end
     if timefrac == 0 then return end
-    wp:Add(LerpVector(timefrac, Vector(), LocalToWorld(Vector(0, 2, -6), Angle(), Vector(), wa)))
+    wp:Add(LerpVector(timefrac, vecBase, LocalToWorld(vecViewModel, angBase, vecBase, wa)))
     wa:RotateAroundAxis(wa:Forward(), Lerp(timefrac, 0, -45))
 end)

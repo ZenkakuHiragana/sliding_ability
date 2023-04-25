@@ -11,6 +11,7 @@ local ismatrix = ismatrix
 local pairs = pairs
 local Vector = Vector
 local Angle = Angle
+local isSingleplayer = game.SinglePlayer()
 
 --==== Predicted EmitSound ====--
 
@@ -96,7 +97,7 @@ function EmitSound(ent, soundName,
     soundFlags   = soundFlags   or SND_NOFLAGS
     dsp          = dsp          or 0
 
-    if game.SinglePlayer() or ent == predictedWeapon
+    if isSingleplayer or ent == predictedWeapon
     or CLIENT and IsFirstTimePredicted() then
         Play(ent, pos, soundName,
             soundLevel, pitchPercent, volume, channel, soundFlags, dsp)
@@ -132,7 +133,7 @@ function StopSound(ent, soundName)
     if not IsValid(ent) then return end
     local predicted = GetPredictionPlayer()
     local predictedWeapon = IsValid(predicted) and predicted:GetActiveWeapon()
-    if game.SinglePlayer() or ent == predictedWeapon
+    if isSingleplayer or ent == predictedWeapon
     or CLIENT and IsFirstTimePredicted() then
         ent:StopSound(soundName)
         return
@@ -150,11 +151,10 @@ function StopSound(ent, soundName)
 end
 
 function Effect(name, effectdata)
-    if game.SinglePlayer() or IsFirstTimePredicted() then
+    if isSingleplayer or IsFirstTimePredicted() then
         util.Effect(name, effectdata)
     end
 end
-
 
 --==== Predicted Variable using Backtrack Elimination ====--
 
@@ -188,7 +188,7 @@ local function __deepcopy(t, lookup)
     return copy
 end
 
-if game.SinglePlayer() then
+if isSingleplayer then
     if SERVER then
         util.AddNetworkString(netSendSP)
     else
@@ -302,7 +302,7 @@ function Set(key, value)
     __vars[__vars.key][ent]      = __vars[__vars.key][ent] or {}
     __vars[__vars.key][ent][key] = value
 
-    if not (game.SinglePlayer() and SERVER) then return end
+    if not (isSingleplayer and SERVER) then return end
     net.Start(netSendSP)
     net.WriteString(__vars.key)
     net.WriteString(key)
