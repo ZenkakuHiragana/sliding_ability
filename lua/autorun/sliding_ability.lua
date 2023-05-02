@@ -106,7 +106,7 @@ local BoneAngleCache = SERVER and {} or nil
 local function ManipulateBoneAnglesLessTraffic(ent, bone, ang, frac)
     local a = (not isSingleplayer and SERVER) and ang or ang * frac
     if (isSingleplayer or CLIENT) or not (BoneAngleCache[ent] and AngleEqualTol(BoneAngleCache[ent][bone], a, 1)) then
-        ent:ManipulateBoneAngles(bone, a)
+        ent:ManipulateBoneAngles(bone, a, false)
         if CLIENT then return end
         BoneAngleCache[ent] = BoneAngleCache[ent] or {}
         BoneAngleCache[ent][bone] = a
