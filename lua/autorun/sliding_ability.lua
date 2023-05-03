@@ -205,9 +205,9 @@ hook.Add("SetupMove", "SlidingAbility_CheckSliding", function(ply, mv)
             pr.Set("SlidingCurrentVelocity", velocity)
             pr.Set("SlidingPreviousPosition", mv:GetOrigin())
 
-            local cooldown = CurTime() + CVarCooldown:GetFloat()
+            local cooldown = CVarCooldown:GetFloat()
             if mv:KeyPressed(IN_JUMP) or not ply:OnGround() then
-                cooldown = CurTime() + CVarCooldownJump:GetFloat()
+                cooldown = CVarCooldownJump:GetFloat()
                 velocity.z = ply:GetJumpPower()
             end
 
@@ -215,7 +215,8 @@ hook.Add("SetupMove", "SlidingAbility_CheckSliding", function(ply, mv)
             if mv:KeyReleased(IN_DUCK) or not ply:OnGround() or math.abs(speed - speedref_crouch) < 10 then
                 if SERVER then ply:SetNWBool("SlidingAbilityIsSliding", false) end
                 pr.Set("IsSliding", false)
-                pr.Set("SlidingStartTime", cooldown)
+                pr.Set("SlidingCooldown", cooldown)
+                pr.Set("SlidingEndTime", CurTime())
                 pr.StopSound(ply, "SlidingAbility.ScrapeRough")
                 ManipulateBones(ply, ply, angBase, angBase, angBase)
             end
@@ -235,7 +236,7 @@ hook.Add("SetupMove", "SlidingAbility_CheckSliding", function(ply, mv)
         if not mv:KeyDown(IN_DUCK) then return end
         -- if not mv:KeyDown(IN_SPEED) then return end -- This disables sliding for some people for some reason
         if not mv:KeyDown(IN_MOVE) then return end
-        if CurTime() < pr.Get("SlidingStartTime", CurTime()) then return end
+        if CurTime() < pr.Get("SlidingEndTime", CurTime()) + pr.Get("SlidingCooldown", 0) then return end
         if math.abs(ply:GetWalkSpeed() - ply:GetRunSpeed()) < 25 then return end
 
         local mvvelocity = mv:GetVelocity()
@@ -405,22 +406,25 @@ hook.Add("CalcViewModelView", "SlidingAbility_SlidingViewModelTilt", function(w,
     if w.ArcCW and w:GetState() == ArcCW.STATE_SIGHTS then return end
 
     local ply = w:GetOwner()
-
     if not (IsValid(ply) and ply:IsPlayer()) then return end
     if not clTiltVM:GetBool() then return end
     if w.IsTFAWeapon and w:GetIronSights() then return end
+
     local wp, wa = p, a
     if isfunction(w.CalcViewModelView) then wp, wa = w:CalcViewModelView(vm, op, oa, p, a) end
     if not (wp and wa) then wp, wa = p, a end
 
-    local t0 = predicted.Get(ply, "SlidingAbility", "SlidingStartTime", 0)
+    local isSliding = IsSliding(ply)
+    local slidingStartTime = predicted.Get(ply, "SlidingAbility", "SlidingStartTime", 0)
+    local slidingEndTime = predicted.Get(ply, "SlidingAbility", "SlidingEndTime", 0)
+    local t0 = isSliding and slidingStartTime or slidingEndTime
     if not IsFirstTimePredicted() then t0 = t0 - ply:Ping() / 1000 end
-    local timefrac = math.TimeFraction(t0, t0 + SLIDE_ANIM_TRANSITION_TIME, CurTime())
-    timefrac = math.Clamp(timefrac, 0, 1)
-    if not IsSliding(ply) then
-        timefrac = 1 - timefrac
+    local timeFraction = math.Clamp(math.TimeFraction(t0, t0 + SLIDE_ANIM_TRANSITION_TIME, CurTime()), 0, 1)
+    if not isSliding then
+        local maxFraction = math.Clamp((slidingEndTime - slidingStartTime) / SLIDE_ANIM_TRANSITION_TIME, 0, 1)
+        timeFraction = math.Clamp(maxFraction - timeFraction, 0, 1)
     end
-    if timefrac == 0 then return end
-    wp:Add(LerpVector(timefrac, vecBase, LocalToWorld(vecViewModel, angBase, vecBase, wa)))
-    wa:RotateAroundAxis(wa:Forward(), Lerp(timefrac, 0, -45))
+    if timeFraction == 0 then return end
+    wp:Add(LerpVector(timeFraction, vecBase, LocalToWorld(vecViewModel, angBase, vecBase, wa)))
+    wa:RotateAroundAxis(wa:Forward(), Lerp(timeFraction, 0, -45))
 end)
