@@ -48,7 +48,7 @@ local CVarCooldown = CreateConVar("sliding_ability_cooldown", 0.3, cf,
 "Cooldown time to be able to slide again in seconds.", 0)
 local CVarCooldownJump = CreateConVar("sliding_ability_cooldown_jump", 0.6, cf,
 "Cooldown time to be able to slide again when you jump while sliding, in seconds.", 0)
-local CVarMaxSpeed = CreateConVar("sliding_ability_max_speed", 725, cf,
+local CVarMaxSpeed = CreateConVar("sliding_ability_max_speed", 2500, cf,
 "The maximum speed that you can move at while sliding.", 0)
 local SLIDING_ABILITY_BLACKLIST = {
     climb_swep2 = true,
@@ -108,10 +108,20 @@ local BoneAngleCache = SERVER and {} or nil
 local function ManipulateBoneAnglesLessTraffic(ent, bone, ang, frac)
     local a = (not isSingleplayer and SERVER) and ang or ang * frac
     if (isSingleplayer or CLIENT) or not (BoneAngleCache[ent] and AngleEqualTol(BoneAngleCache[ent][bone], a, 1)) then
-        ent:ManipulateBoneAngles(bone, a, false)
+        ent:ManipulateBoneAngles(bone, a, isSingleplayer)
         if CLIENT then return end
         BoneAngleCache[ent] = BoneAngleCache[ent] or {}
         BoneAngleCache[ent][bone] = a
+        if isSingleplayer then return end
+        net.Start "SlidingAbility_BroadcastBoneManipulation"
+        net.WriteEntity(ent)
+        net.WriteUInt(bone, 8)
+        net.WriteAngle(a)
+        if ent:IsPlayer() then
+            net.SendOmit(ent)
+        else
+            net.Broadcast()
+        end
     end
 end
 
@@ -155,15 +165,20 @@ local function SetSlidingPose(ply, ent, body_tilt)
     ManipulateBones(ply, ent, -Angle(0, 0, body_tilt), angThigh, angCalf)
 end
 
+local function IsSliding(ply)
+    if predicted.Get(ply, "SlidingAbility", "IsSliding") then return true end
+    if CLIENT and LocalPlayer() == ply then return false end
+    return ply:GetNWBool("SlidingAbilityIsSliding", false)
+end
+
 hook.Add("SetupMove", "SlidingAbility_CheckSliding", function(ply, mv)
-    if not ply:Crouching() then return end
     local w = ply:GetActiveWeapon()
     if IsValid(w) and SLIDING_ABILITY_BLACKLIST[w:GetClass()] then return end
     if ConVarExists("savav_parkour_Enable") and GetConVar("savav_parkour_Enable"):GetBool() then return end
     if ConVarExists("sv_sliding_enabled") and GetConVar("sv_sliding_enabled"):GetBool() and ply.HasExosuit ~= false then return end
     predicted.Process("SlidingAbility", function(pr)
         -- Actual calculation of movement
-        if pr.Get "IsSliding" then
+        if ply:Crouching() and pr.Get "IsSliding" then
             -- Calculate movement
             local velocity = pr.Get("SlidingCurrentVelocity", vecBase)
             local speed = velocity:Length()
@@ -214,7 +229,9 @@ hook.Add("SetupMove", "SlidingAbility_CheckSliding", function(ply, mv)
         end
 
         -- Initial check to see if we can do it
+        if pr.Get "IsSliding" then return end
         if not ply:OnGround() then return end
+        if not ply:Crouching() then return end
         if not mv:KeyDown(IN_DUCK) then return end
         -- if not mv:KeyDown(IN_SPEED) then return end -- This disables sliding for some people for some reason
         if not mv:KeyDown(IN_MOVE) then return end
@@ -241,8 +258,7 @@ hook.Add("SetupMove", "SlidingAbility_CheckSliding", function(ply, mv)
 end)
 
 local function SlidingFootstep(ply)
-    return predicted.Get(ply, "SlidingAbility", "IsSliding")
-    or ply:GetNWBool("SlidingAbilityIsSliding", false) or nil
+    return IsSliding(ply) or nil
 end
 
 if DSteps then
@@ -264,8 +280,7 @@ if DSteps then
                 return EmitSoundHook(data, ...)
             end
 
-            if predicted.Get(ply, "SlidingAbility", "IsSliding")
-                or ply:GetNWBool("SlidingAbilityIsSliding", false) then
+            if IsSliding(ply) then
                 return
             end
 
@@ -277,8 +292,7 @@ else
 end
 
 hook.Add("CalcMainActivity", "SlidingAbility_SlidingAnimation", function(ply)
-    if not (predicted.Get(ply, "SlidingAbility", "IsSliding")
-        or ply:GetNWBool("SlidingAbilityIsSliding", false)) then return end
+    if not IsSliding(ply) then return end
     if GetSlidingActivity(ply) == -1 then return end
     return GetSlidingActivity(ply), -1
 end)
@@ -306,8 +320,7 @@ hook.Add("UpdateAnimation", "SlidingAbility_SlidingAimPoseParameters", function(
         end
     end
 
-    if not (predicted.Get(ply, "SlidingAbility", "IsSliding")
-        or ply:GetNWBool("SlidingAbilityIsSliding", false)) then
+    if not IsSliding(ply) then
         if ply.SlidingAbility_SlidingReset then
             ply.SlidingAbility_SlidingReset = nil
             DoSomethingWithLegs(ManipulateBones, angBase, angBase, angBase)
@@ -359,8 +372,8 @@ hook.Add("UpdateAnimation", "SlidingAbility_SlidingAimPoseParameters", function(
 end)
 
 if SERVER then
+    util.AddNetworkString "SlidingAbility_BroadcastBoneManipulation"
     local vecInitSpawn = Vector(1, 1, 1)
-
     hook.Add("PlayerInitialSpawn", "SlidingAbility_PreventBreakingTPSModelOnChangelevel", function(ply, transition)
         if not transition then return end
         timer.Simple(1, function()
@@ -374,6 +387,14 @@ if SERVER then
 
     return
 end
+
+net.Receive("SlidingAbility_BroadcastBoneManipulation", function()
+    local ply = net.ReadEntity()
+    if LocalPlayer() == ply then return end
+    local bone = net.ReadUInt(8)
+    local ang = net.ReadAngle()
+    ply:ManipulateBoneAngles(bone, ang, false)
+end)
 
 local clTiltVM = CreateClientConVar("sliding_ability_tilt_viewmodel", 1, true, true, "Enable viewmodel tilt like Apex Legends when sliding.")
 local vecViewModel = Vector(0, 2, -6)
@@ -396,8 +417,7 @@ hook.Add("CalcViewModelView", "SlidingAbility_SlidingViewModelTilt", function(w,
     if not IsFirstTimePredicted() then t0 = t0 - ply:Ping() / 1000 end
     local timefrac = math.TimeFraction(t0, t0 + SLIDE_ANIM_TRANSITION_TIME, CurTime())
     timefrac = math.Clamp(timefrac, 0, 1)
-    if not (predicted.Get(ply, "SlidingAbility", "IsSliding")
-        or ply:GetNWBool("SlidingAbilityIsSliding", false)) then
+    if not IsSliding(ply) then
         timefrac = 1 - timefrac
     end
     if timefrac == 0 then return end
