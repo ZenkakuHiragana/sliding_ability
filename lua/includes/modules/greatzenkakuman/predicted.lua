@@ -251,7 +251,7 @@ local function __begin(id)
     end
 end
 
-local function __terminate(func)
+local function __terminate()
     local ent = GetPredictionPlayer()
     local hash = __tohash(CurTime())
     __clean(ent)
@@ -314,6 +314,6 @@ end
 function Process(id, func)
     __begin(id)
     local a = { func(greatzenkakuman.predicted) }
-    __terminate(id)
+    __terminate()
     return unpack(a)
 end
