@@ -1,6 +1,24 @@
-
 require "greatzenkakuman/predicted"
 local predicted = greatzenkakuman.predicted
+
+local IsValid = IsValid
+local CurTime = CurTime
+local GetConVar = GetConVar
+local isstring = isstring
+local isangle = isangle
+local ConVarExists = ConVarExists
+local isfunction = isfunction
+local Vector = Vector
+local Angle = Angle
+local isSingleplayer = game.SinglePlayer()
+
+local vecBase = Vector()
+local vecMWOffset = Vector(-3, 0, -55)
+local vecOffset = Vector(12, 0, -46)
+
+local angBase = Angle()
+local angThigh = Angle(20, 35, 85)
+local angCalf = Angle(0, 45, 0)
 
 sound.Add {
     name = "SlidingAbility.ImpactSoft",
@@ -25,11 +43,13 @@ sound.Add {
 
 local cf = { FCVAR_REPLICATED, FCVAR_ARCHIVE } -- CVarFlags
 local CVarAccel = CreateConVar("sliding_ability_acceleration", 250, cf,
-"The acceleration/deceleration of the sliding.  Larger value makes shorter sliding.")
+"The acceleration/deceleration of the sliding. Larger value makes shorter sliding.", 0)
 local CVarCooldown = CreateConVar("sliding_ability_cooldown", 0.3, cf,
-"Cooldown time to be able to slide again in seconds.")
+"Cooldown time to be able to slide again in seconds.", 0)
 local CVarCooldownJump = CreateConVar("sliding_ability_cooldown_jump", 0.6, cf,
-"Cooldown time to be able to slide again when you jump while sliding, in seconds.")
+"Cooldown time to be able to slide again when you jump while sliding, in seconds.", 0)
+local CVarMaxSpeed = CreateConVar("sliding_ability_max_speed", 725, cf,
+"The maximum speed that you can move at while sliding.", 0)
 local SLIDING_ABILITY_BLACKLIST = {
     climb_swep2 = true,
     parkourmod = true,
@@ -86,9 +106,9 @@ end
 
 local BoneAngleCache = SERVER and {} or nil
 local function ManipulateBoneAnglesLessTraffic(ent, bone, ang, frac)
-    local a = (not game.SinglePlayer() and SERVER) and ang or ang * frac
-    if (game.SinglePlayer() or CLIENT) or not (BoneAngleCache[ent] and AngleEqualTol(BoneAngleCache[ent][bone], a, 1)) then
-        ent:ManipulateBoneAngles(bone, a)
+    local a = (not isSingleplayer and SERVER) and ang or ang * frac
+    if (isSingleplayer or CLIENT) or not (BoneAngleCache[ent] and AngleEqualTol(BoneAngleCache[ent][bone], a, 1)) then
+        ent:ManipulateBoneAngles(bone, a, false)
         if CLIENT then return end
         BoneAngleCache[ent] = BoneAngleCache[ent] or {}
         BoneAngleCache[ent][bone] = a
@@ -100,28 +120,28 @@ local function ManipulateBones(ply, ent, base, thigh, calf)
     local bthigh = ent:LookupBone "ValveBiped.Bip01_R_Thigh"
     local bcalf = ent:LookupBone "ValveBiped.Bip01_R_Calf"
     local t0 = predicted.Get(ply, "SlidingAbility", "SlidingStartTime", 0)
-    local ping = (game.SinglePlayer() or SERVER) and 0 or LocalPlayer():Ping() / 1000
+    local ping = (isSingleplayer or SERVER) and 0 or LocalPlayer():Ping() / 1000
     local timefrac = math.TimeFraction(t0 - ping, t0 - ping + SLIDE_ANIM_TRANSITION_TIME, CurTime())
-    timefrac = (not game.SinglePlayer() and SERVER) and 1 or math.Clamp(timefrac, 0, 1)
+    timefrac = (not isSingleplayer and SERVER) and 1 or math.Clamp(timefrac, 0, 1)
     if bthigh or bcalf then ManipulateBoneAnglesLessTraffic(ent, 0, base, timefrac) end
     if bthigh then ManipulateBoneAnglesLessTraffic(ent, bthigh, thigh, timefrac) end
     if bcalf then ManipulateBoneAnglesLessTraffic(ent, bcalf, calf, timefrac) end
 
     if not (EnhancedCamera and ent == EnhancedCamera.entity) then return end
-    local dp = Vector()
+    local dp = vecBase
     local w = ply:GetActiveWeapon()
     if not thigh:IsZero() then
         if IsValid(w) and string.find(w.Base or "", "mg_base") and string.lower(w.HoldType or "") ~= "pistol" then
-            dp = ply:GetCurrentViewOffset() + Vector(-3, 0, -55)
+            dp = ply:GetCurrentViewOffset() + vecMWOffset
         else
-            dp = ply:GetCurrentViewOffset() + Vector(12, 0, -46)
+            dp = ply:GetCurrentViewOffset() + vecOffset
         end
     end
 
     local seqname = LocalPlayer():GetSequenceName(EnhancedCamera:GetSequence())
     local pose = IsValid(w) and string.lower(w.HoldType or "") or ""
     if pose == "" then pose = seqname:sub((seqname:find "_" or 0) + 1) end
-    if pose:find "all" then pose = "normal" end
+    if pose:find("all") then pose = "normal" end
     if pose == "smg1" then pose = "smg" end
     if pose and pose ~= "" and pose ~= EnhancedCamera.pose then
         EnhancedCamera.pose = pose
@@ -132,25 +152,26 @@ local function ManipulateBones(ply, ent, base, thigh, calf)
 end
 
 local function SetSlidingPose(ply, ent, body_tilt)
-    ManipulateBones(ply, ent, -Angle(0, 0, body_tilt), Angle(20, 35, 85), Angle(0, 45, 0))
+    ManipulateBones(ply, ent, -Angle(0, 0, body_tilt), angThigh, angCalf)
 end
 
-hook.Add("SetupMove", "Check sliding", function(ply, mv, cmd)
+hook.Add("SetupMove", "SlidingAbility_CheckSliding", function(ply, mv)
+    if not ply:Crouching() then return end
     local w = ply:GetActiveWeapon()
     if IsValid(w) and SLIDING_ABILITY_BLACKLIST[w:GetClass()] then return end
-    if ConVarExists "savav_parkour_Enable" and GetConVar "savav_parkour_Enable":GetBool() then return end
-    if ConVarExists "sv_sliding_enabled" and GetConVar "sv_sliding_enabled":GetBool() and ply.HasExosuit ~= false then return end
+    if ConVarExists("savav_parkour_Enable") and GetConVar("savav_parkour_Enable"):GetBool() then return end
+    if ConVarExists("sv_sliding_enabled") and GetConVar("sv_sliding_enabled"):GetBool() and ply.HasExosuit ~= false then return end
     predicted.Process("SlidingAbility", function(pr)
-        local velocity = pr.Get("SlidingCurrentVelocity", Vector())
-        local speed = velocity:Length()
-        local speedref_crouch = ply:GetWalkSpeed() * ply:GetCrouchedWalkSpeed()
-
         -- Actual calculation of movement
-        if ply:Crouching() and pr.Get "IsSliding" then
+        if pr.Get "IsSliding" then
             -- Calculate movement
+            local velocity = pr.Get("SlidingCurrentVelocity", vecBase)
+            local speed = velocity:Length()
+            local speedref_crouch = ply:GetWalkSpeed() * ply:GetCrouchedWalkSpeed()
+
             local vdir = velocity:GetNormalized()
             local forward = mv:GetMoveAngles():Forward()
-            local speedref_slide = pr.Get "SlidingMaxSpeed"
+            local speedref_slide = pr.Get("SlidingMaxSpeed")
             local speedref_min = math.min(speedref_crouch, speedref_slide)
             local speedref_max = math.max(speedref_crouch, speedref_slide)
             local dp = mv:GetOrigin() - pr.Get("SlidingPreviousPosition", mv:GetOrigin())
@@ -162,7 +183,8 @@ hook.Add("SetupMove", "Check sliding", function(ply, mv, cmd)
             local accel_cvar = CVarAccel:GetFloat()
             local accel = accel_cvar * engine.TickInterval()
             if speed > speedref then accel = -accel end
-            velocity = LerpVector(0.005, vdir, forward) * (speed + accel)
+            local maxspeed_cvar = CVarMaxSpeed:GetInt()
+            velocity = LerpVector(0.005, vdir, forward) * math.Clamp(speed + accel, -maxspeed_cvar, maxspeed_cvar)
 
             SetSlidingPose(ply, ply, math.deg(math.asin(dp.z)) * dot + SLIDE_TILT_DEG)
             pr.Set("SlidingCurrentVelocity", velocity)
@@ -180,7 +202,7 @@ hook.Add("SetupMove", "Check sliding", function(ply, mv, cmd)
                 pr.Set("IsSliding", false)
                 pr.Set("SlidingStartTime", cooldown)
                 pr.StopSound(ply, "SlidingAbility.ScrapeRough")
-                ManipulateBones(ply, ply, Angle(), Angle(), Angle())
+                ManipulateBones(ply, ply, angBase, angBase, angBase)
             end
 
             local e = EffectData()
@@ -192,9 +214,7 @@ hook.Add("SetupMove", "Check sliding", function(ply, mv, cmd)
         end
 
         -- Initial check to see if we can do it
-        if pr.Get "IsSliding" then return end
         if not ply:OnGround() then return end
-        if not ply:Crouching() then return end
         if not mv:KeyDown(IN_DUCK) then return end
         -- if not mv:KeyDown(IN_SPEED) then return end -- This disables sliding for some people for some reason
         if not mv:KeyDown(IN_MOVE) then return end
@@ -220,10 +240,11 @@ hook.Add("SetupMove", "Check sliding", function(ply, mv, cmd)
     end)
 end)
 
-local function SlidingFootstep(ply, pos, foot, soundname, volume, filter)
+local function SlidingFootstep(ply)
     return predicted.Get(ply, "SlidingAbility", "IsSliding")
     or ply:GetNWBool("SlidingAbilityIsSliding", false) or nil
 end
+
 if DSteps then
     local fsname = "zzzzzz_dstep_main"
     local esname = "zzzzz_dsteps_maskfootstep"
@@ -252,17 +273,17 @@ if DSteps then
         end)
     end
 else
-    hook.Add("PlayerFootstep", "Sliding sound", SlidingFootstep)
+    hook.Add("PlayerFootstep", "SlidingAbility_SlidingSound", SlidingFootstep)
 end
 
-hook.Add("CalcMainActivity", "Sliding animation", function(ply, velocity)
+hook.Add("CalcMainActivity", "SlidingAbility_SlidingAnimation", function(ply)
     if not (predicted.Get(ply, "SlidingAbility", "IsSliding")
         or ply:GetNWBool("SlidingAbilityIsSliding", false)) then return end
     if GetSlidingActivity(ply) == -1 then return end
     return GetSlidingActivity(ply), -1
 end)
 
-hook.Add("UpdateAnimation", "Sliding aim pose parameters", function(ply, velocity, maxSeqGroundSpeed)
+hook.Add("UpdateAnimation", "SlidingAbility_SlidingAimPoseParameters", function(ply, velocity, maxSeqGroundSpeed)
     -- Workaround!!!  Revive Mod disables the sliding animation so we disable it
     local ReviveModUpdateAnimation = hook.GetTable().UpdateAnimation.BleedOutAnims
     if ReviveModUpdateAnimation then hook.Remove("UpdateAnimation", "BleedOutAnims") end
@@ -289,7 +310,7 @@ hook.Add("UpdateAnimation", "Sliding aim pose parameters", function(ply, velocit
         or ply:GetNWBool("SlidingAbilityIsSliding", false)) then
         if ply.SlidingAbility_SlidingReset then
             ply.SlidingAbility_SlidingReset = nil
-            DoSomethingWithLegs(ManipulateBones, Angle(), Angle(), Angle())
+            DoSomethingWithLegs(ManipulateBones, angBase, angBase, angBase)
         end
 
         return
@@ -338,13 +359,15 @@ hook.Add("UpdateAnimation", "Sliding aim pose parameters", function(ply, velocit
 end)
 
 if SERVER then
-    hook.Add("PlayerInitialSpawn", "Prevent breaking TPS model on changelevel", function(ply, transition)
+    local vecInitSpawn = Vector(1, 1, 1)
+
+    hook.Add("PlayerInitialSpawn", "SlidingAbility_PreventBreakingTPSModelOnChangelevel", function(ply, transition)
         if not transition then return end
         timer.Simple(1, function()
             for i = 0, ply:GetBoneCount() - 1 do
-                ply:ManipulateBoneScale(i, Vector(1, 1, 1))
-                ply:ManipulateBoneAngles(i, Angle())
-                ply:ManipulateBonePosition(i, Vector())
+                ply:ManipulateBoneScale(i, vecInitSpawn)
+                ply:ManipulateBoneAngles(i, angBase)
+                ply:ManipulateBonePosition(i, vecBase)
             end
         end)
     end)
@@ -352,19 +375,23 @@ if SERVER then
     return
 end
 
-CreateClientConVar("sliding_ability_tilt_viewmodel", 1, true, true, "Enable viewmodel tilt like Apex Legends when sliding.")
-hook.Add("CalcViewModelView", "Sliding view model tilt", function(w, vm, op, oa, p, a)
+local clTiltVM = CreateClientConVar("sliding_ability_tilt_viewmodel", 1, true, true, "Enable viewmodel tilt like Apex Legends when sliding.")
+local vecViewModel = Vector(0, 2, -6)
+
+hook.Add("CalcViewModelView", "SlidingAbility_SlidingViewModelTilt", function(w, vm, op, oa, p, a)
     if w.SuppressSlidingViewModelTilt then return end -- For the future addons which are compatible with this addon
     if string.find(w.Base or "", "mg_base") and w:GetToggleAim() then return end
     if w.ArcCW and w:GetState() == ArcCW.STATE_SIGHTS then return end
-    if not (IsValid(w.Owner) and w.Owner:IsPlayer()) then return end
-    if not GetConVar "sliding_ability_tilt_viewmodel":GetBool() then return end
+
+    local ply = w:GetOwner()
+
+    if not (IsValid(ply) and ply:IsPlayer()) then return end
+    if not clTiltVM:GetBool() then return end
     if w.IsTFAWeapon and w:GetIronSights() then return end
     local wp, wa = p, a
     if isfunction(w.CalcViewModelView) then wp, wa = w:CalcViewModelView(vm, op, oa, p, a) end
     if not (wp and wa) then wp, wa = p, a end
 
-    local ply = w.Owner
     local t0 = predicted.Get(ply, "SlidingAbility", "SlidingStartTime", 0)
     if not IsFirstTimePredicted() then t0 = t0 - ply:Ping() / 1000 end
     local timefrac = math.TimeFraction(t0, t0 + SLIDE_ANIM_TRANSITION_TIME, CurTime())
@@ -374,6 +401,6 @@ hook.Add("CalcViewModelView", "Sliding view model tilt", function(w, vm, op, oa,
         timefrac = 1 - timefrac
     end
     if timefrac == 0 then return end
-    wp:Add(LerpVector(timefrac, Vector(), LocalToWorld(Vector(0, 2, -6), Angle(), Vector(), wa)))
+    wp:Add(LerpVector(timefrac, vecBase, LocalToWorld(vecViewModel, angBase, vecBase, wa)))
     wa:RotateAroundAxis(wa:Forward(), Lerp(timefrac, 0, -45))
 end)
