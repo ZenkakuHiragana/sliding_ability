@@ -171,6 +171,12 @@ local function IsSliding(ply)
     return ply:GetNWBool("SlidingAbilityIsSliding", false)
 end
 
+local function CheckCrouching(ply)
+    -- Compatibility issue with Movement - Reworked partially fixes by disabling crouch check
+    if GetConVar "kait_movement_enabled" then return true end
+    return ply:Crouching()
+end
+
 hook.Add("SetupMove", "SlidingAbility_CheckSliding", function(ply, mv)
     local w = ply:GetActiveWeapon()
     if IsValid(w) and SLIDING_ABILITY_BLACKLIST[w:GetClass()] then return end
@@ -178,7 +184,7 @@ hook.Add("SetupMove", "SlidingAbility_CheckSliding", function(ply, mv)
     if ConVarExists("sv_sliding_enabled") and GetConVar("sv_sliding_enabled"):GetBool() and ply.HasExosuit ~= false then return end
     predicted.Process("SlidingAbility", function(pr)
         -- Actual calculation of movement
-        if ply:Crouching() and pr.Get "IsSliding" then
+        if CheckCrouching(ply) and pr.Get "IsSliding" then
             -- Calculate movement
             local velocity = pr.Get("SlidingCurrentVelocity", vecBase)
             local speed = velocity:Length()
@@ -232,7 +238,7 @@ hook.Add("SetupMove", "SlidingAbility_CheckSliding", function(ply, mv)
         -- Initial check to see if we can do it
         if pr.Get "IsSliding" then return end
         if not ply:OnGround() then return end
-        if not ply:Crouching() then return end
+        if not CheckCrouching(ply) then return end
         if not mv:KeyDown(IN_DUCK) then return end
         -- if not mv:KeyDown(IN_SPEED) then return end -- This disables sliding for some people for some reason
         if not mv:KeyDown(IN_MOVE) then return end
@@ -402,7 +408,7 @@ local vecViewModel = Vector(0, 2, -6)
 
 hook.Add("CalcViewModelView", "SlidingAbility_SlidingViewModelTilt", function(w, vm, op, oa, p, a)
     if w.SuppressSlidingViewModelTilt then return end -- For the future addons which are compatible with this addon
-    if string.find(w.Base or "", "mg_base") and w:GetToggleAim() then return end
+    if string.find(w.Base or "", "mg_base") and isfunction(w.GetToggleAim) and w:GetToggleAim() then return end
     if w.ArcCW and w:GetState() == ArcCW.STATE_SIGHTS then return end
 
     local ply = w:GetOwner()
