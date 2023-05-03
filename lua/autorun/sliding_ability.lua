@@ -43,11 +43,13 @@ sound.Add {
 
 local cf = { FCVAR_REPLICATED, FCVAR_ARCHIVE } -- CVarFlags
 local CVarAccel = CreateConVar("sliding_ability_acceleration", 250, cf,
-"The acceleration/deceleration of the sliding.  Larger value makes shorter sliding.")
+"The acceleration/deceleration of the sliding. Larger value makes shorter sliding.", 0)
 local CVarCooldown = CreateConVar("sliding_ability_cooldown", 0.3, cf,
-"Cooldown time to be able to slide again in seconds.")
+"Cooldown time to be able to slide again in seconds.", 0)
 local CVarCooldownJump = CreateConVar("sliding_ability_cooldown_jump", 0.6, cf,
-"Cooldown time to be able to slide again when you jump while sliding, in seconds.")
+"Cooldown time to be able to slide again when you jump while sliding, in seconds.", 0)
+local CVarMaxSpeed = CreateConVar("sliding_ability_max_speed", 725, cf,
+"The maximum speed that you can move at while sliding.", 0)
 local SLIDING_ABILITY_BLACKLIST = {
     climb_swep2 = true,
     parkourmod = true,
@@ -139,7 +141,7 @@ local function ManipulateBones(ply, ent, base, thigh, calf)
     local seqname = LocalPlayer():GetSequenceName(EnhancedCamera:GetSequence())
     local pose = IsValid(w) and string.lower(w.HoldType or "") or ""
     if pose == "" then pose = seqname:sub((seqname:find "_" or 0) + 1) end
-    if pose:find "all" then pose = "normal" end
+    if pose:find("all") then pose = "normal" end
     if pose == "smg1" then pose = "smg" end
     if pose and pose ~= "" and pose ~= EnhancedCamera.pose then
         EnhancedCamera.pose = pose
@@ -169,7 +171,7 @@ hook.Add("SetupMove", "SlidingAbility_CheckSliding", function(ply, mv)
 
             local vdir = velocity:GetNormalized()
             local forward = mv:GetMoveAngles():Forward()
-            local speedref_slide = pr.Get "SlidingMaxSpeed"
+            local speedref_slide = pr.Get("SlidingMaxSpeed")
             local speedref_min = math.min(speedref_crouch, speedref_slide)
             local speedref_max = math.max(speedref_crouch, speedref_slide)
             local dp = mv:GetOrigin() - pr.Get("SlidingPreviousPosition", mv:GetOrigin())
@@ -181,7 +183,8 @@ hook.Add("SetupMove", "SlidingAbility_CheckSliding", function(ply, mv)
             local accel_cvar = CVarAccel:GetFloat()
             local accel = accel_cvar * engine.TickInterval()
             if speed > speedref then accel = -accel end
-            velocity = LerpVector(0.005, vdir, forward) * (speed + accel)
+            local maxspeed_cvar = CVarMaxSpeed:GetInt()
+            velocity = LerpVector(0.005, vdir, forward) * math.Clamp(speed + accel, -maxspeed_cvar, maxspeed_cvar)
 
             SetSlidingPose(ply, ply, math.deg(math.asin(dp.z)) * dot + SLIDE_TILT_DEG)
             pr.Set("SlidingCurrentVelocity", velocity)
