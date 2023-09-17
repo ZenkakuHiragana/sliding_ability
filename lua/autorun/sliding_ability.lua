@@ -298,6 +298,27 @@ else
     hook.Add("PlayerFootstep", "SlidingAbility_SlidingSound", SlidingFootstep)
 end
 
+-- This is a super-duper-dirty-hacky way to resolve conflict
+-- with Alternate Running Animation (Workshop ID: 1104562150)
+local addons = engine.GetAddons()
+for _, addon in ipairs(addons) do
+    if addon.wsid ~= "1104562150" then continue end
+    timer.Create("SlidingAbility_FixAlternateRunningAnimation", 1, 5, function()
+        local t = hook.GetTable()
+        if not (t and istable(t)) then return end
+        t = t.CalcMainActivity
+        if not (t and istable(t)) then return end
+        local f = t.BaseAnimations
+        if not (f and isfunction(f)) then return end
+        timer.Remove "SlidingAbility_FixAlternateRunningAnimation"
+        hook.Remove("CalcMainActivity", "BaseAnimations")
+        hook.Add("CalcMainActivity", "BaseAnimations",  function(ply, ...)
+            if IsSliding(ply) then return end
+            return f(ply, ...)
+        end)
+    end)
+end
+
 hook.Add("CalcMainActivity", "SlidingAbility_SlidingAnimation", function(ply)
     if not IsSliding(ply) then return end
     if GetSlidingActivity(ply) == -1 then return end
