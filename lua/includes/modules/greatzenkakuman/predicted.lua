@@ -3,12 +3,6 @@ module("greatzenkakuman.predicted", package.seeall)
 
 local IsValid = IsValid
 local CurTime = CurTime
-local isentity = isentity
-local istable = istable
-local isvector = isvector
-local isangle = isangle
-local ismatrix = ismatrix
-local pairs = pairs
 local Vector = Vector
 local Angle = Angle
 local isSingleplayer = game.SinglePlayer()

@@ -3,20 +3,18 @@ local predicted = greatzenkakuman.predicted
 
 local IsValid = IsValid
 local CurTime = CurTime
-local isstring = isstring
-local isangle = isangle
-local isfunction = isfunction
 local Vector = Vector
 local Angle = Angle
 local isSingleplayer = game.SinglePlayer()
 
-local vecBase = Vector()
+local vecBase = vector_origin
 local vecMWOffset = Vector(-3, 0, -55)
 local vecOffset = Vector(12, 0, -46)
 
-local angBase = Angle()
+local angBase = angle_zero
 local angThigh = Angle(20, 35, 85)
 local angCalf = Angle(0, 45, 0)
+local angViewpunch = Angle(-0.5, 0, -0.5)
 
 sound.Add {
     name = "SlidingAbility.ImpactSoft",
@@ -264,6 +262,10 @@ hook.Add("SetupMove", "SlidingAbility_CheckSliding", function(ply, mv)
         pr.Set("SlidingMaxSpeed", runspeed * 5)
         pr.EmitSound(ply:GetPos(), "SlidingAbility.ImpactSoft")
         pr.EmitSound(ply, "SlidingAbility.ScrapeRough")
+
+        if tobool(ply:GetInfoNum("sliding_ability_viewpunch", 0)) then
+            ply:ViewPunch(angViewpunch)
+        end
     end)
 end)
 
@@ -343,8 +345,11 @@ local function DoSomethingWithLegs(ply, doSomething, ...)
 end
 
 -- Workaround!!!  Revive Mod disables the sliding animation so we disable it
-local ReviveModUpdateAnimation = hook.GetTable().UpdateAnimation.BleedOutAnims
-if ReviveModUpdateAnimation then hook.Remove("UpdateAnimation", "BleedOutAnims") end
+local ReviveModUpdateAnimation
+hook.Add("InitPostEntity", "SlidingAbility_ReviveModCompatibility", function()
+    ReviveModUpdateAnimation = hook.GetTable().UpdateAnimation.BleedOutAnims
+    if ReviveModUpdateAnimation then hook.Remove("UpdateAnimation", "BleedOutAnims") end
+end)
 
 hook.Add("UpdateAnimation", "SlidingAbility_SlidingAimPoseParameters", function(ply, velocity, maxSeqGroundSpeed)
     if ReviveModUpdateAnimation and ply:IsBleedOut() then
@@ -431,6 +436,7 @@ net.Receive("SlidingAbility_BroadcastBoneManipulation", function()
     ply:ManipulateBoneAngles(bone, ang, false)
 end)
 
+CreateClientConVar("sliding_ability_viewpunch", 1, true, true, "Enables a slight viewpunch roll when entering a slide.", 0, 1)
 local clTiltVM = CreateClientConVar("sliding_ability_tilt_viewmodel", 1, true, true, "Enable viewmodel tilt like Apex Legends when sliding.")
 local vecViewModel = Vector(0, 2, -6)
 
