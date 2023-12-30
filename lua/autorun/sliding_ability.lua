@@ -430,7 +430,7 @@ end
 
 net.Receive("SlidingAbility_BroadcastBoneManipulation", function()
     local ply = net.ReadEntity()
-    if LocalPlayer() == ply then return end
+    if not IsValid(ply) or LocalPlayer() == ply then return end
     local bone = net.ReadUInt(8)
     local ang = net.ReadAngle()
     ply:ManipulateBoneAngles(bone, ang, false)
