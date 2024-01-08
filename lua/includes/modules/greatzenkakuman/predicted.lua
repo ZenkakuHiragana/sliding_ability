@@ -58,7 +58,7 @@ else
             dsp = net.ReadUInt(NET_DSP_BITS)
         end
         if isvector(ent) then pos, ent = ent, nil end
-        if isentity(ent) then
+        if isentity(ent) and IsValid(ent) then
             ent:EmitSound(name, level, pitch, volume, channel, flags, dsp)
         else
             sound.Play(name, pos, level, pitch, volume)
