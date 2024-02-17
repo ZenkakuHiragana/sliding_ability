@@ -50,6 +50,8 @@ local CVarCooldownJump = CreateConVar("sliding_ability_cooldown_jump", 0.6, cf,
 "Cooldown time to be able to slide again when you jump while sliding, in seconds.", 0)
 local CVarMaxSpeed = CreateConVar("sliding_ability_max_speed", 2500, cf,
 "The maximum speed that you can move at while sliding.", 0)
+local CVarSpeedThreshold = CreateConVar("sliding_ability_threshold", -1, cf,
+"Required speed to be able to slide, set to -1 for automatic", -1)
 local SLIDING_ABILITY_BLACKLIST = {
     climb_swep2 = true,
     parkourmod = true,
@@ -249,7 +251,10 @@ hook.Add("SetupMove", "SlidingAbility_CheckSliding", function(ply, mv)
         local mvlength = mvvelocity:Length()
         local run = ply:GetRunSpeed()
         local crouched = ply:GetWalkSpeed() * ply:GetCrouchedWalkSpeed()
-        local threshold = (run + crouched) / 2
+        local threshold = CVarSpeedThreshold:GetInt()
+        if threshold < 0 then
+            threshold = (run + crouched) / 2
+        end
         if run > crouched and mvlength < threshold then return end
         if run < crouched and (mvlength < run - 1 or mvlength > threshold) then return end
         local runspeed = math.max(ply:GetVelocity():Length(), mvlength, run) * 1.5
