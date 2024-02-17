@@ -252,9 +252,9 @@ hook.Add("SetupMove", "SlidingAbility_CheckSliding", function(ply, mv)
         local run = ply:GetRunSpeed()
         local crouched = ply:GetWalkSpeed() * ply:GetCrouchedWalkSpeed()
         local threshold = CVarSpeedThreshold:GetInt()
-		if threshold < 0 then
-			threshold = (run + crouched) / 2
-		end
+        if threshold < 0 then
+            threshold = (run + crouched) / 2
+        end
         if run > crouched and mvlength < threshold then return end
         if run < crouched and (mvlength < run - 1 or mvlength > threshold) then return end
         local runspeed = math.max(ply:GetVelocity():Length(), mvlength, run) * 1.5
