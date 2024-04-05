@@ -93,6 +93,7 @@ function EmitSound(ent, soundName,
 
     if isSingleplayer or ent == predictedWeapon
     or CLIENT and IsFirstTimePredicted() then
+        StopSound(ent, soundName)
         Play(ent, pos, soundName,
             soundLevel, pitchPercent, volume, channel, soundFlags, dsp)
         return
