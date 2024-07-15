@@ -446,17 +446,18 @@ local clTiltVM = CreateClientConVar("sliding_ability_tilt_viewmodel", 1, true, t
 local vecViewModel = Vector(0, 2, -6)
 
 hook.Add("CalcViewModelView", "SlidingAbility_SlidingViewModelTilt", function(w, vm, op, oa, p, a)
-    if w.SuppressSlidingViewModelTilt then return end -- For the future addons which are compatible with this addon
-    if string.find(w.Base or "", "mg_base") and isfunction(w.GetToggleAim) and w:GetToggleAim() then return end
-    if w.ArcCW and w:GetState() == ArcCW.STATE_SIGHTS then return end
+    local wTbl = w:GetTable()
+    if wTbl.SuppressSlidingViewModelTilt then return end -- For the future addons which are compatible with this addon
+    if string.find(wTbl.Base or "", "mg_base") and isfunction(wTbl.GetToggleAim) and w:GetToggleAim() then return end
+    if wTbl.ArcCW and w:GetState() == ArcCW.STATE_SIGHTS then return end
 
     local ply = w:GetOwner()
     if not (IsValid(ply) and ply:IsPlayer()) then return end
     if not clTiltVM:GetBool() then return end
-    if w.IsTFAWeapon and w:GetIronSights() then return end
+    if wTbl.IsTFAWeapon and w:GetIronSights() then return end
 
     local wp, wa = p, a
-    if isfunction(w.CalcViewModelView) then wp, wa = w:CalcViewModelView(vm, op, oa, p, a) end
+    if isfunction(wTbl.CalcViewModelView) then wp, wa = w:CalcViewModelView(vm, op, oa, p, a) end
     if not (wp and wa) then wp, wa = p, a end
 
     local isSliding = IsSliding(ply)
