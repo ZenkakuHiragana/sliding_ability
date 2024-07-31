@@ -308,26 +308,35 @@ else
     hook.Add("PlayerFootstep", "SlidingAbility_SlidingSound", SlidingFootstep)
 end
 
--- This is a super-duper-dirty-hacky way to resolve conflict
--- with Alternate Running Animation (Workshop ID: 1104562150)
-local addons = engine.GetAddons()
-for _, addon in ipairs(addons) do
-    if addon.wsid ~= "1104562150" then continue end
-    timer.Create("SlidingAbility_FixAlternateRunningAnimation", 1, 5, function()
-        local t = hook.GetTable()
-        if not (t and istable(t)) then return end
-        t = t.CalcMainActivity
-        if not (t and istable(t)) then return end
-        local f = t.BaseAnimations
-        if not (f and isfunction(f)) then return end
-        timer.Remove("SlidingAbility_FixAlternateRunningAnimation")
-        hook.Remove("CalcMainActivity", "BaseAnimations")
-        hook.Add("CalcMainActivity", "BaseAnimations",  function(ply, ...)
+local function AddonCompat()
+    local hooks = hook.GetTable()
+    if not hooks or not istable(hooks) then return end
+
+    -- Alternate Running Animation (Workshop ID: 1104562150)
+    local calcMainActivity = hooks.CalcMainActivity
+    if calcMainActivity and istable(calcMainActivity) and calcMainActivity.BaseAnimations and isfunction(calcMainActivity.BaseAnimations) then
+        local orig = calcMainActivity.BaseAnimations
+
+        hook.Add("CalcMainActivity", "BaseAnimations", function(ply, ...)
+            if not IsValid(ply) then return end
             if IsSliding(ply) then return end
-            return f(ply, ...)
+            return orig(ply, ...)
         end)
-    end)
+    end
+
+    -- IK Foot (Workshop ID: 1605334558)
+    local postPlayerDraw = hooks.PostPlayerDraw
+    if postPlayerDraw and istable(postPlayerDraw) and postPlayerDraw.IKFoot_PostPlayerDraw and isfunction(postPlayerDraw.IKFoot_PostPlayerDraw) then
+        local orig = postPlayerDraw.IKFoot_PostPlayerDraw
+
+        hook.Add("PostPlayerDraw", "IKFoot_PostPlayerDraw", function(ply, ...)
+            if not IsValid(ply) then return end
+            if IsSliding(ply) then return end
+            return orig(ply, ...)
+        end)
+    end
 end
+hook.Add("Initialize", "SlidingAbility_Compatibility", AddonCompat)
 
 hook.Add("CalcMainActivity", "SlidingAbility_SlidingAnimation", function(ply)
     if not IsSliding(ply) then return end
