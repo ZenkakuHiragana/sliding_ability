@@ -7,11 +7,11 @@ local Vector = Vector
 local Angle = Angle
 local isSingleplayer = game.SinglePlayer()
 
-local vecBase = vector_origin
+local vecBase = Vector(0, 0, 0)
 local vecMWOffset = Vector(-3, 0, -55)
 local vecOffset = Vector(12, 0, -46)
 
-local angBase = angle_zero
+local angBase = Angle(0, 0, 0)
 local angThigh = Angle(20, 35, 85)
 local angCalf = Angle(0, 45, 0)
 local angViewpunch = Angle(-0.5, 0, -0.5)
@@ -169,11 +169,14 @@ local function IsSliding(ply)
     return ply:GetNWBool("SlidingAbilityIsSliding", false)
 end
 
-local kaitCvar = GetConVar("kait_movement_enabled")
+local kaitCvar = false
 
 local function CheckCrouching(ply)
     -- Compatibility issue with Movement - Reworked partially fixes by disabling crouch check
     if kaitCvar then return true end
+
+    -- GetConVar returns nil on failure so this won't run twice
+    if kaitCvar == false then kaitCvar = GetConVar("kait_movement_enabled") end
     return ply:Crouching()
 end
 
