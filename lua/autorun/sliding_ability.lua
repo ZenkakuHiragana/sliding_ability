@@ -348,10 +348,10 @@ hook.Add("CalcMainActivity", "SlidingAbility_SlidingAnimation", function(ply)
 end)
 
 local function DoSomethingWithLegs(ply, doSomething, ...)
-    for _, addon in ipairs { "g_LegsVer", "EnhancedCamera", "EnhancedCameraTwo" } do
+    for _, addon in ipairs { "g_LegsVer", "EnhancedCamera", "EnhancedCameraTwo", "CLegs" } do
         local leg = nil
         if not _G[addon] then continue end
-        if addon == "g_LegsVer" then
+        if addon == "g_LegsVer" or addon == "CLegs" then
             leg = GetPlayerLegs()
         else
             leg = _G[addon].entity
