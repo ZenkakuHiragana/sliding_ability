@@ -3,12 +3,6 @@ module("greatzenkakuman.predicted", package.seeall)
 
 local IsValid = IsValid
 local CurTime = CurTime
-local isentity = isentity
-local istable = istable
-local isvector = isvector
-local isangle = isangle
-local ismatrix = ismatrix
-local pairs = pairs
 local Vector = Vector
 local Angle = Angle
 local isSingleplayer = game.SinglePlayer()
@@ -64,7 +58,7 @@ else
             dsp = net.ReadUInt(NET_DSP_BITS)
         end
         if isvector(ent) then pos, ent = ent, nil end
-        if isentity(ent) then
+        if isentity(ent) and IsValid(ent) then
             ent:EmitSound(name, level, pitch, volume, channel, flags, dsp)
         else
             sound.Play(name, pos, level, pitch, volume)
@@ -99,6 +93,7 @@ function EmitSound(ent, soundName,
 
     if isSingleplayer or ent == predictedWeapon
     or CLIENT and IsFirstTimePredicted() then
+        StopSound(ent, soundName)
         Play(ent, pos, soundName,
             soundLevel, pitchPercent, volume, channel, soundFlags, dsp)
         return
